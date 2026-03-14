@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScamDefy</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  
+  <header>
+    <div class="logo">ScamDefy</div>
+    <div id="systemBadge" class="badge">Protected</div>
+  </header>
+
+  <main>
+    <div class="view-toggle">
+      <button id="btn-home" class="active">Scanner</button>
+      <button id="btn-modules">Modules</button>
+      <button id="btn-settings">⚙️</button>
+    </div>
+
+    <!-- Scanner View -->
+    <section id="view-scanner">
+      
+      <!-- Current Page Status -->
+      <div class="card current-page">
+        <h3>Current Page <button id="btn-refresh-scan" class="btn-refresh" title="Refresh Scan">↻</button></h3>
+        <div id="currentPageUrl" class="url-text">Loading...</div>
+        
+        <div class="score-container">
+          <div class="gauge" id="scoreGauge">
+            <span id="scoreValue">--</span>
+          </div>
+          <div id="verdictBadge" class="verdict default">SCANNING</div>
+        </div>
+        
+        <p id="aiExplanation" class="explanation"></p>
+      </div>
+
+      <!-- Manual Scanner -->
+      <div class="card manual-scan">
+        <h3>Manual Scanner</h3>
+        <input type="text" id="manualUrl" placeholder="Paste any URL to scan...">
+        <button id="btn-scan" class="primary-btn">Scan Now</button>
+        <div id="manualScanResult" class="manual-result"></div>
+      </div>
+
+      <!-- Voice Scan -->
+      <div class="card voice-scan">
+        <h3>Voice Clone Detection</h3>
+        <input type="file" id="voiceUpload" accept=".wav,.mp3,.ogg,.m4a">
+        <button id="btn-voice" class="primary-btn">Analyze Voice</button>
+        <div id="voiceResult" class="voice-result"></div>
+      </div>
+    </section>
+
+    <!-- Modules View -->
+    <section id="view-modules" style="display: none;">
+      <div class="card" id="moduleContainer">
+        <h3>System Health</h3>
+        <!-- Filled by JS -->
+      </div>
+    </section>
+
+    <!-- Settings View -->
+    <section id="view-settings" style="display: none;">
+      <div class="card">
+        <h3>API Setup</h3>
+        <label>Google Safe Browsing:</label>
+        <input type="password" id="gsbKey" class="settings-input">
+        
+        <!-- Phishtank replaced by URLhaus which doesn't need an API key -->
+        
+        <label>Gemini API Key:</label>
+        <input type="password" id="geminiKey" class="settings-input">
+        
+        <button id="btn-save-settings" class="primary-btn">Save</button>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

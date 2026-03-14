@@ -1,0 +1,117 @@
+import urllib.parse
+from typing import Dict, Any, List
+
+LEGIT_DOMAINS = [
+    "google.com", "paypal.com", "amazon.com", "microsoft.com", 
+    "apple.com", "facebook.com", "instagram.com", "netflix.com",
+    "bankofamerica.com", "chase.com", "wellsfargo.com", "citi.com"
+]
+
+PROTECTED_BRANDS = [
+    "paypal", "google", "amazon", "microsoft", "apple",
+    "facebook", "instagram", "netflix", "bank", "secure", "login", "verify"
+]
+
+SUSPICIOUS_TLDS = [
+    ".xyz", ".tk", ".ml", ".ga", ".cf", ".gq",
+    ".pw", ".top", ".click", ".download", ".zip", ".review", ".country"
+]
+
+def levenshtein(a: str, b: str) -> int:
+    if not a: return len(b)
+    if not b: return len(a)
+    
+    matrix = [[0] * (len(a) + 1) for _ in range(len(b) + 1)]
+    
+    for i in range(len(b) + 1):
+        matrix[i][0] = i
+    for j in range(len(a) + 1):
+        matrix[0][j] = j
+        
+    for i in range(1, len(b) + 1):
+        for j in range(1, len(a) + 1):
+            if b[i-1] == a[j-1]:
+                matrix[i][j] = matrix[i-1][j-1]
+            else:
+                matrix[i][j] = min(
+                    matrix[i-1][j-1] + 1,
+                    matrix[i][j-1] + 1,
+                    matrix[i-1][j] + 1
+                )
+    return matrix[len(b)][len(a)]
+
+def analyze(url: str) -> Dict[str, Any]:
+    flags = []
+    risk_contribution = 0
+    
+    try:
+        parsed_url = urllib.parse.urlparse(url)
+        hostname = parsed_url.netloc.lower()
+        if not hostname:
+            return {"domain": url, "flags": [], "risk_contribution": 0, "is_suspicious": False}
+            
+        parts = hostname.split('.')
+        tld = "." + parts[-1] if len(parts) > 0 else ""
+        main_domain_part = parts[-2] if len(parts) > 1 else parts[0]
+        full_domain = f"{main_domain_part}{tld}" if len(parts) > 1 else hostname
+        
+        # 1. Typosquatting
+        if full_domain not in LEGIT_DOMAINS:
+            for legit in LEGIT_DOMAINS:
+                legit_name = legit.split('.')[0]
+                dist = levenshtein(main_domain_part, legit_name)
+                
+                if 0 < dist <= 2:
+                    flags.append({"type": "TYPOSQUATTING", "detail": f"Similar to {legit}", "weight": 60})
+                    risk_contribution += 60
+                    break
+                    
+                # Character substitution
+                clean_main = main_domain_part.replace('1', 'l').replace('0', 'o').replace('rn', 'm')
+                if clean_main == legit_name and main_domain_part != legit_name:
+                    flags.append({"type": "CHARACTER_SUBSTITUTION", "detail": f"Substitutions found simulating {legit}", "weight": 80})
+                    risk_contribution += 80
+                    break
+
+        # 2. Suspicious TLD
+        if tld in SUSPICIOUS_TLDS:
+            flags.append({"type": "SUSPICIOUS_TLD", "detail": f"Uses high-risk TLD: {tld}", "weight": 20})
+            risk_contribution += 20
+            
+        # 3. Subdomain Depth
+        subdomain_count = len(parts) - 2
+        if subdomain_count > 3:
+            flags.append({"type": "DEEP_SUBDOMAIN", "detail": f"Has {subdomain_count} subdomains", "weight": 30})
+            risk_contribution += 30
+            
+        # 4. Hyphen Abuse
+        hyphen_count = hostname.count('-')
+        if hyphen_count >= 3:
+            flags.append({"type": "HYPHEN_ABUSE", "detail": f"Contains {hyphen_count} hyphens", "weight": 20})
+            risk_contribution += 20
+            
+        # 5. Brand Impersonation
+        if full_domain not in LEGIT_DOMAINS:
+            for brand in PROTECTED_BRANDS:
+                if brand in hostname:
+                    flags.append({"type": "BRAND_IMPERSONATION", "detail": f"Contains protected brand name '{brand}'", "weight": 50})
+                    risk_contribution += 50
+                    break
+                    
+        # 6. Punycode
+        if hostname.startswith('xn--') or any(p.startswith('xn--') for p in parts):
+            flags.append({"type": "PUNYCODE_HOMOGRAPH", "detail": "Uses IDN/Punycode encoding", "weight": 70})
+            risk_contribution += 70
+
+        risk_contribution = min(risk_contribution, 100)
+        
+        return {
+            "domain": hostname,
+            "flags": flags,
+            "risk_contribution": risk_contribution,
+            "is_suspicious": risk_contribution >= 30
+        }
+        
+    except Exception as exc:
+        return {"domain": url, "flags": [{"type": "ERROR", "detail": str(exc), "weight": 0}], "risk_contribution": 0, "is_suspicious": False}
+
