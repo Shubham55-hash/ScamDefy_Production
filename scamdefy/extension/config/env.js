@@ -1,5 +1,5 @@
 const ENV = {
-  BACKEND_URL: "http://127.0.0.1:8000",
+  BACKEND_URL: "http://127.0.0.1:8008",
   GOOGLE_SAFE_BROWSING_API_KEY: "",   // loaded from storage
   GEMINI_API_KEY: "",                 // loaded from storage
   SCAN_ENDPOINT: "/api/scan",

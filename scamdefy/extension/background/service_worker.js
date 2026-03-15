@@ -151,42 +151,49 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 // ---------------------------------------------------------------------------
 
 async function handleScanResult(tabId, url, scanResponse) {
-  if (!scanResponse?.success || !scanResponse?.data) return;
+  // If scan failed (backend down / network error) — show a visible grey
+  // warning banner instead of silently doing nothing.
+  if (!scanResponse?.success || !scanResponse?.data) {
+    injectBanner(tabId, {
+      verdict: 'ERROR',
+      score: null,
+      url,
+      color: '#94a3b8',
+    });
+    return;
+  }
+
   const result = scanResponse.data;
 
   // Persist scan data for the popup history feature
   chrome.storage.local.set({ [`scan_${url}`]: result });
 
   if (result.score >= 80) {
-    // Embed scan data in the redirect URL to avoid the storage race condition:
-    // previously, storage was written AFTER the redirect, so warning.js read
-    // empty storage. Passing data as a base64 query param guarantees it is
-    // available the instant warning.html loads.
-    const encoded = btoa(JSON.stringify(result));
+    // Embed scan data in redirect URL — avoids storage race condition
+    // where storage was written AFTER redirect so warning.js read empty storage.
+    const encoded    = btoa(JSON.stringify(result));
     const warningUrl = chrome.runtime.getURL(
       `ui/warning.html?url=${encodeURIComponent(url)}&data=${encoded}`
     );
     chrome.tabs.update(tabId, { url: warningUrl });
 
   } else if (result.score >= 60) {
-    // DANGER — inject orange warning banner without redirecting
     injectBanner(tabId, {
       verdict: result.verdict,
-      score: result.score,
+      score:   result.score,
       url,
-      color: '#f97316',
+      color:   '#f97316',
     });
 
   } else if (result.score >= 30) {
-    // CAUTION — inject yellow informational banner without redirecting
     injectBanner(tabId, {
       verdict: result.verdict,
-      score: result.score,
+      score:   result.score,
       url,
-      color: '#f59e0b',
+      color:   '#f59e0b',
     });
   }
-  // SAFE (score < 30) — do nothing, no UI disruption
+  // score < 30 = SAFE — do nothing, no UI disruption
 }
 
 // ---------------------------------------------------------------------------

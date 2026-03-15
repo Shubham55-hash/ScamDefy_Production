@@ -44,22 +44,24 @@ function setupNavigation() {
 function updateColors(score, verdict) {
   const gauge = document.getElementById('scoreGauge');
   const badge = document.getElementById('verdictBadge');
-  
-  let color = '#334155';
-  let bg = '#1e293b';
-  
-  if (verdict === 'SAFE') { color = 'var(--green)'; bg = 'rgba(34, 197, 94, 0.2)'; }
-  else if (verdict === 'CAUTION') { color = 'var(--yellow)'; bg = 'rgba(245, 158, 11, 0.2)'; }
-  else if (verdict === 'DANGER') { color = 'var(--orange)'; bg = 'rgba(249, 115, 22, 0.2)'; }
-  else if (verdict === 'BLOCKED') { color = 'var(--red)'; bg = 'rgba(239, 68, 68, 0.2)'; }
+
+  let color = '#94a3b8';
+  let bg    = 'rgba(148, 163, 184, 0.15)';
+
+  if      (verdict === 'SAFE')    { color = 'var(--green)';  bg = 'rgba(34, 197, 94, 0.2)';   }
+  else if (verdict === 'CAUTION') { color = 'var(--yellow)'; bg = 'rgba(245, 158, 11, 0.2)';  }
+  else if (verdict === 'DANGER')  { color = 'var(--orange)'; bg = 'rgba(249, 115, 22, 0.2)';  }
+  else if (verdict === 'BLOCKED') { color = 'var(--red)';    bg = 'rgba(239, 68, 68, 0.2)';   }
+  else if (verdict === 'ERROR')   { color = '#94a3b8';       bg = 'rgba(148, 163, 184, 0.15)';}
+  // catch-all: any unknown verdict gets visible grey — never invisible again
 
   gauge.style.borderColor = color;
-  badge.style.color = color;
-  badge.style.background = bg;
-  badge.textContent = verdict;
-  
-  if (score !== null) {
-      document.getElementById('scoreValue').textContent = score;
+  badge.style.color       = color;
+  badge.style.background  = bg;
+  badge.textContent       = verdict || 'UNKNOWN';
+
+  if (score !== null && score !== '--') {
+    document.getElementById('scoreValue').textContent = score;
   }
 }
 
@@ -238,15 +240,18 @@ function setupVoiceUpload() {
 }
 
 function setupSettings() {
-  chrome.storage.local.get(['GEMINI_API_KEY'], res => {
-      if(res.GEMINI_API_KEY) document.getElementById('geminiKey').value = res.GEMINI_API_KEY;
+  // Load both saved keys into the inputs when the settings panel opens
+  chrome.storage.local.get(['GEMINI_API_KEY', 'GSB_API_KEY'], res => {
+    if (res.GEMINI_API_KEY) document.getElementById('geminiKey').value = res.GEMINI_API_KEY;
+    if (res.GSB_API_KEY)    document.getElementById('gsbKey').value    = res.GSB_API_KEY;
   });
-  
+
   document.getElementById('btn-save-settings').addEventListener('click', () => {
-     const gemini = document.getElementById('geminiKey').value;
-     
-     chrome.storage.local.set({ GEMINI_API_KEY: gemini }, () => {
-        alert("Settings saved!");
-     });
+    const gemini = document.getElementById('geminiKey').value.trim();
+    const gsb    = document.getElementById('gsbKey').value.trim();
+
+    chrome.storage.local.set({ GEMINI_API_KEY: gemini, GSB_API_KEY: gsb }, () => {
+      alert('Settings saved!');
+    });
   });
 }
