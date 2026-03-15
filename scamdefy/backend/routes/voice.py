@@ -3,13 +3,8 @@ from typing import Optional
 import numpy as np
 import io
 import soundfile as sf
-from services.voice_service import (
-    analyze_audio,
-    load_model,
-    pretrained_available,
-    _model_loading,
-    PRETRAINED_MODEL_ID,
-)
+from services import voice_service
+from services.voice_service import analyze_audio, load_model
 
 router = APIRouter()
 
@@ -21,7 +16,7 @@ ACCEPTED_FORMATS = [".wav", ".mp3", ".ogg", ".m4a"]
 async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = None):
     # Return 503 while the pretrained model is still being downloaded.
     # The client should retry after a short delay.
-    if _model_loading and not pretrained_available:
+    if voice_service._model_loading and not voice_service.pretrained_available:
         raise HTTPException(
             status_code=503,
             detail="Model is loading, please retry in a few seconds",
@@ -67,16 +62,17 @@ async def health_check():
         if result.get("verdict") in ["REAL", "SYNTHETIC", "UNCERTAIN"]:
             return {
                 "status": "ok",
-                "pretrained_model": PRETRAINED_MODEL_ID if pretrained_available else None,
-                "pretrained_available": pretrained_available,
-                "model_loading": _model_loading,
+                "pretrained_model": voice_service.PRETRAINED_MODEL_ID if voice_service.pretrained_available else None,
+                "pretrained_available": voice_service.pretrained_available,
+                "pretrained_error": voice_service._model_load_error if not voice_service.pretrained_available else None,
+                "model_loading": voice_service._model_loading,
                 "verdict": result.get("verdict"),
                 "confidence": result.get("confidence"),
             }
         else:
             return {
                 "status": "fail",
-                "pretrained_available": pretrained_available,
+                "pretrained_available": voice_service.pretrained_available,
                 "reason": result.get("warning", "Unknown error"),
             }
 

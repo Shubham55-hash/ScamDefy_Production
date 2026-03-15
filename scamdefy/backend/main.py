@@ -2,8 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import scan, voice, health
 from dotenv import load_dotenv
+import logging
+import threading
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ScamDefy Backend", version="1.0.0")
 
@@ -24,3 +29,10 @@ async def startup():
     from services import gsb_service, urlhaus_service
     await gsb_service.health_check()
     await urlhaus_service.health_check()
+
+    # Load the HuggingFace pretrained voice model in a background thread
+    # so it doesn't block the server from starting up
+    from services.voice_service import load_model
+    logger.info("[ScamDefy] Starting background download of pretrained voice model...")
+    thread = threading.Thread(target=load_model, daemon=True)
+    thread.start()
