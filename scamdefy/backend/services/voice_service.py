@@ -362,7 +362,6 @@ async def analyze_audio(
 
     try:
         import io as _io
-        import random
         import asyncio
 
         audio_buf = _io.BytesIO(file_bytes)
@@ -374,42 +373,9 @@ async def analyze_audio(
 
         logging.info(f"[ScamDefy] Loaded audio: {filename}, duration={len(y)/sr:.2f}s, sr={sr}")
 
-        # If filename doesn't contain whatsapp, force SYNTHETIC with random confidence > 80%
-        if "whatsapp" not in filename.lower():
-            delay = random.uniform(5.0, 10.0)
-            logging.info(f"[ScamDefy] Simulating processing time. Sleeping for {delay:.2f} seconds...")
-            await asyncio.sleep(delay)
-
-            fake_conf = random.uniform(0.81, 0.99)
-            reason = random.choice(SYNTHETIC_REASONS)
-            logging.info(f"[ScamDefy] Filename '{filename}' does not contain 'whatsapp'. Forcing SYNTHETIC.")
-            return {
-                "verdict": "SYNTHETIC",
-                "confidence": fake_conf,
-                "low_confidence": False,
-                "detection_method": "filename_heuristic",
-                "reason": reason,
-                "audio_info": {
-                    "narrowband": False,
-                    "spectral_rolloff_hz": 0,
-                },
-                "model_results": {
-                    "pretrained_prob": fake_conf,
-                    "heuristic_score": fake_conf,
-                    "gemini_verdict": "SYNTHETIC",
-                    "gemini_confidence": fake_conf,
-                    "effective_weights": {},
-                },
-                "pretrained_model": PRETRAINED_MODEL_ID if pretrained_available else None,
-            }
-
         # Step A0: WhatsApp fingerprint — fast path, runs before any ML inference.
         wa_match, wa_reason = is_whatsapp_audio(filename, y, sr)
         if wa_match:
-            delay = random.uniform(5.0, 10.0)
-            logging.info(f"[ScamDefy] Simulating processing time for authentic audio. Sleeping for {delay:.2f} seconds...")
-            await asyncio.sleep(delay)
-
             logging.info("[ScamDefy] WhatsApp fingerprint matched — returning REAL immediately")
             return {
                 "verdict":            "REAL",

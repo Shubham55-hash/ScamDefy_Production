@@ -1,6 +1,6 @@
 export type Verdict = 'SAFE' | 'CAUTION' | 'DANGER' | 'BLOCKED';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'UNKNOWN';
+export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'UNKNOWN' | 'UNCERTAIN';
 
 export interface SignalItem {
   name: string;

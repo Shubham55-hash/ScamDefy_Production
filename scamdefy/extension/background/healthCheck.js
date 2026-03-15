@@ -15,9 +15,9 @@ export async function runAllHealthChecks() {
     if (res.ok) {
       const data = await res.json();
       // Extract GSB, PhishTank, Voice from backend health
-      results.push({ module: "Google Safe Browsing", status: data.modules.gsb_service.status, reason: data.modules.gsb_service.reason });
-      results.push({ module: "URLHaus", status: data.modules.urlhaus_service.status, reason: data.modules.urlhaus_service.reason });
-      results.push({ module: "Voice Detector", status: data.modules.voice_cnn.status, reason: data.modules.voice_cnn.reason });
+      results.push({ module: "Google Safe Browsing", status: data.modules.gsb_service    ? "ok" : "fail", reason: data.modules.gsb_service    ? "Active" : "No API key or error" });
+      results.push({ module: "URLHaus",              status: data.modules.urlhaus_service ? "ok" : "fail", reason: data.modules.urlhaus_service ? "Active" : "No API key or error" });
+      results.push({ module: "Voice Detector",       status: data.modules.voice_cnn       ? "ok" : "fail", reason: data.modules.voice_cnn       ? "Active" : "Model unavailable"   });
       backendRes = { module: "Backend Connection", status: "ok", reason: "Connected to " + ENV.BACKEND_URL };
     } else {
       backendRes.reason = `HTTP ${res.status}`;

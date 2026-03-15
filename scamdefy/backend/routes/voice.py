@@ -2,6 +2,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from typing import Optional
 import numpy as np
 import io
+import uuid
+from datetime import datetime, timezone
 import soundfile as sf
 from services import voice_service
 from services.voice_service import analyze_audio, load_model
@@ -12,7 +14,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ACCEPTED_FORMATS = [".wav", ".mp3", ".ogg", ".m4a"]
 
 
-@router.post("/voice")
+@router.post("/voice/analyze")
 async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = None):
     # Return 503 while the pretrained model is still being downloaded.
     # The client should retry after a short delay.
@@ -37,7 +39,23 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
     if result["verdict"] == "ERROR":
         raise HTTPException(status_code=500, detail=result.get("warning", "Analysis failed"))
 
-    return result
+    confidence = float(result.get("confidence", 0.0))
+    return {
+        "id":             str(uuid.uuid4()),
+        "verdict":        result.get("verdict", "UNKNOWN"),
+        "confidence":     confidence,
+        "confidence_pct": round(confidence * 100, 1),
+        "model_loaded":   voice_service.pretrained_available,
+        "warning":        result.get("warning"),
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+        # pass-through fields used by VoiceResult.tsx for additional detail display
+        "low_confidence":   result.get("low_confidence", False),
+        "detection_method": result.get("detection_method"),
+        "reason":           result.get("reason") or result.get("fingerprint_reason"),
+        "audio_info":       result.get("audio_info"),
+        "model_results":    result.get("model_results"),
+        "pretrained_model": result.get("pretrained_model"),
+    }
 
 
 @router.get("/voice/health")

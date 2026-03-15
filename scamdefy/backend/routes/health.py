@@ -20,10 +20,10 @@ async def health_check_all():
     url_res, gsb_res, uh_res, voice_res = results
     
     modules = {
-        "url_expander": url_res,
-        "gsb_service": gsb_res,
-        "urlhaus_service": uh_res,
-        "voice_cnn": voice_res
+        "url_expander":    url_res.get("status") == "ok",
+        "gsb_service":     gsb_res.get("status") == "ok",
+        "urlhaus_service": uh_res.get("status") == "ok",
+        "voice_cnn":       voice_res.get("status") == "ok",
     }
     
     # The overall status is "ok" if there are no exceptions.
