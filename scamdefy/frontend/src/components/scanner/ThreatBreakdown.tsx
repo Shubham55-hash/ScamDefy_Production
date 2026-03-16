@@ -1,25 +1,28 @@
-import React from 'react';
-import { ScanResult } from '../../types';
+import type { ScanBreakdown } from '../../types';
 
-interface Props { result: ScanResult }
+interface Props { 
+  breakdown?: ScanBreakdown;
+  noContainer?: boolean;
+}
 
 const SOURCES = [
-  { key: 'gsb',         label: 'Google Safe Browse' },
-  { key: 'urlhaus',     label: 'URLhaus'            },
-  { key: 'threatfox',   label: 'ThreatFox'          },
-  { key: 'domain',      label: 'Domain Analysis'    },
-  { key: 'heuristics',  label: 'Heuristics'         },
-  { key: 'virustotal',  label: 'VirusTotal'         },
+  { key: 'gsb',           label: 'Google Safe Browse' },
+  { key: 'urlhaus',       label: 'URLhaus'            },
+  { key: 'domain',        label: 'Domain Reputation'  },
+  { key: 'impersonation', label: 'Brand Integrity'    },
+  { key: 'domain_age',    label: 'Domain Age'         },
+  { key: 'heuristics',    label: 'Heuristics'         },
 ];
 
-export function ThreatBreakdown({ result }: Props) {
-  if (!result.breakdown) return null;
-  return (
-    <div className="glass-panel rounded-xl p-5 mt-4">
+export function ThreatBreakdown({ breakdown, noContainer }: Props) {
+  if (!breakdown) return null;
+
+  const content = (
+    <div className={noContainer ? "" : "glass-panel rounded-xl p-5 mt-4"}>
       <p className="text-[9px] font-mono uppercase tracking-widest text-white/30 mb-4">Score Breakdown</p>
-      <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
         {SOURCES.map(src => {
-          const val = (result.breakdown as any)[src.key] ?? 0;
+          const val = (breakdown as any)[src.key] ?? 0;
           const pct = Math.min(100, Math.abs(val));
           const color = val > 20 ? '#ef4444' : val > 0 ? '#f59e0b' : '#00f2ff';
           return (
@@ -40,4 +43,6 @@ export function ThreatBreakdown({ result }: Props) {
       </div>
     </div>
   );
+
+  return content;
 }

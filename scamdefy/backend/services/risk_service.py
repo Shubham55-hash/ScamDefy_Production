@@ -68,38 +68,50 @@ def get_brand_impersonation(hostname: str) -> Dict[str, Any]:
 def calculate_url_pattern_score(url: str) -> float:
     score = 0
     try:
-        parsed_url = urllib.parse.urlparse(url)
+        url_lower = url.lower()
+        parsed_url = urllib.parse.urlparse(url_lower)
+        hostname = parsed_url.hostname or ""
 
-        if parsed_url.scheme != "https":
+        # 1. Non-HTTPS is a significant signal but not definitive
+        if parsed_url.scheme == "http":
             score += 35
 
-        if len(url) > 100:
-            score += 20
-        if len(url) > 200:
-            score += 20
+        # 2. Length based signals
+        if len(url) > 80:  score += 15
+        if len(url) > 150: score += 15
 
-        params = urllib.parse.parse_qs(parsed_url.query)
-        if len(params.keys()) > 4:
-            score += 15
-        if len(params.keys()) > 8:
-            score += 10
+        # 3. Keyword Analysis (EVERYWHERE in the URL)
+        SUSPICIOUS_KEYWORDS = [
+            "login", "verify", "update", "confirm", "secure", "account",
+            "signin", "password", "credential", "banking", "otp", "wallet",
+            "support", "service", "billing", "security", "customer", "invoice"
+        ]
+        keywords_found = 0
+        for kw in SUSPICIOUS_KEYWORDS:
+            if kw in url_lower:
+                keywords_found += 1
+        
+        score += min(keywords_found * 15, 60)
 
-        hostname = parsed_url.hostname or ""
+        # 4. Technical anomalies
         if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", hostname):
             score += 60
+        
+        # Multiple hyphens / dots in hostname
+        if hostname.count('-') >= 2: score += 15
+        if hostname.count('.') >= 3: score += 20
 
-        path_lower = (parsed_url.path or "").lower()
-        for kw in ["login", "verify", "update", "confirm", "secure", "account",
-                   "signin", "password", "credential", "banking", "otp"]:
-            if kw in path_lower:
-                score += 10
-                break
+        # 5. Suspicious character encoding (Hides URL from human eyes)
+        if "%2f" in url_lower or "%40" in url_lower or "@" in hostname:
+            score += 40
 
-        if "%2f" in url.lower() or "%40" in url.lower() or "data:" in url.lower():
-            score += 30
+        # 6. High-risk TLDs
+        SUS_TLDS = [".xyz", ".tk", ".ml", ".ga", ".cf", ".gq", ".pw", ".top", ".click", ".zip"]
+        if any(hostname.endswith(tld) for tld in SUS_TLDS):
+            score += 40
 
     except Exception:
-        score = 50
+        return 0.0
 
     return float(min(score, 100))
 
@@ -156,29 +168,29 @@ def score(
                 impersonation_score  = w
                 impersonation_reason = flag.get("detail", impersonation_reason)
 
+    # If it's an authoritative hit, we want it to be prominent (+100)
+    # but we still return the other heuristic scores as they were calculated
     gsb_contribution = 100.0 if gsb_threat else 0.0
     uh_contribution  = 100.0 if uh_threat  else 0.0
 
     final_score = (
-        gsb_contribution    * 0.40 +
-        uh_contribution     * 0.30 +
-        domain_contribution * 0.12 +
-        url_pattern_score   * 0.08 +
-        age_score           * 0.06 +
-        impersonation_score * 0.04
+        max(gsb_contribution, uh_contribution) * 0.40 +
+        domain_contribution * 0.15 +
+        url_pattern_score   * 0.15 +
+        age_score           * 0.15 +
+        impersonation_score * 0.15
     )
-
-    if not gsb_threat and not uh_threat:
-        if impersonation_score >= 60 and age_score >= 50:
-            final_score = max(final_score, 70.0)
-        elif impersonation_score >= 60:
-            final_score = max(final_score, 55.0)
-        elif age_score >= 70:
-            final_score = max(final_score, 50.0)
 
     is_authoritative_threat = gsb_threat or uh_threat
     if is_authoritative_threat:
         final_score = 100.0
+    
+    # Floor for suspicious signals to ensure non-zero breakdown for threats
+    if not is_authoritative_threat:
+        if impersonation_score > 0 and age_score > 50:
+            final_score = max(final_score, 75.0)
+        elif impersonation_score > 0:
+            final_score = max(final_score, 60.0)
 
     verdict = "SAFE"
     color   = "#22c55e"
@@ -194,19 +206,22 @@ def score(
 
     reasons: List[str] = []
     if gsb_threat:
-        reasons.append("🚫 Listed on Google Safe Browsing as a confirmed threat")
+        reasons.append("🚫 Confirmed threat: Listed on Google Safe Browsing")
     if uh_threat:
-        reasons.append("🚫 Identified as phishing/malware by URLHaus database")
+        reasons.append("🚫 Malware/Phishing: Identified by URLHaus")
     if impersonation_reason:
-        reasons.append(f"⚠️ Brand impersonation detected: {impersonation_reason}")
+        reasons.append(f"⚠️ Brand Risk: {impersonation_reason}")
     if age_reason:
-        reasons.append(f"🕐 Domain age risk: {age_reason}")
-    for flag in domain_result.get("flags", []):
-        detail = flag.get("detail", "")
-        if detail and detail != impersonation_reason:
-            reasons.append(f"• {detail}")
-    if url_pattern_score >= 35:
-        reasons.append(f"• Suspicious URL structure detected (score: {url_pattern_score:.0f}/100)")
+        reasons.append(f"🕐 Age Risk: {age_reason}")
+    
+    # Concatenate other minor flags
+    domain_flags = [f.get("detail", "") for f in domain_result.get("flags", []) 
+                    if f.get("detail", "") != impersonation_reason]
+    for df in domain_flags[:3]:
+        reasons.append(f"• {df}")
+
+    if url_pattern_score >= 30:
+        reasons.append(f"• Suspicious URL characteristics detected")
 
     return {
         "url":          url,

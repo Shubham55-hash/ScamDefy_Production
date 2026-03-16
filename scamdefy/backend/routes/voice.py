@@ -12,7 +12,7 @@ from utils.threat_logger import log_threat
 router = APIRouter()
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ACCEPTED_FORMATS = [".wav", ".mp3", ".ogg", ".m4a"]
+ACCEPTED_FORMATS = [".wav", ".mp3", ".ogg", ".m4a", ".webm"]
 
 
 @router.post("/voice/analyze")

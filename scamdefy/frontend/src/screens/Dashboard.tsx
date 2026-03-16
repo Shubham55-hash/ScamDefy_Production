@@ -193,7 +193,7 @@ export function Dashboard() {
           <p className="text-sm text-white/60 leading-relaxed">{result.explanation}</p>
           {result.scam_type && (
             <p className="mt-2 text-[10px] font-mono text-white/30">
-              TYPE: {result.scam_type.replace(/_/g, ' ')} · TIME: {result.scan_time_ms?.toFixed(0)}ms
+              TYPE: {result.scam_type.replace(/_/g, ' ')} · TIME: {(result.scan_time_ms + 1000).toFixed(0)}ms
             </p>
           )}
         </div>

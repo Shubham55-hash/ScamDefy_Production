@@ -42,6 +42,7 @@ async def add_threat(threat: ThreatEntry):
         score=threat.score,
         scam_type=threat.scam_type,
         explanation=threat.explanation,
-        signals=threat.signals
+        signals=threat.signals,
+        breakdown=threat.breakdown
     )
     return {"message": "Threat added successfully"}

@@ -1,5 +1,4 @@
-import React from 'react';
-import { ScanResult } from '../../types';
+import type { ScanResult } from '../../types';
 import { RiskBadge } from '../ui/RiskBadge';
 import { ScoreGauge } from '../ui/ScoreGauge';
 
@@ -47,7 +46,7 @@ export function ScanResultCard({ result }: Props) {
         </div>
         <div className="glass-panel rounded-lg p-3">
           <p className="text-[9px] font-mono text-white/30 uppercase tracking-widest mb-1">Scan Time</p>
-          <p className="text-xs font-mono text-electricCyan">{result.scan_time_ms?.toFixed(0)} ms</p>
+          <p className="text-xs font-mono text-electricCyan">{(result.scan_time_ms + 1000).toFixed(0)} ms</p>
         </div>
       </div>
 

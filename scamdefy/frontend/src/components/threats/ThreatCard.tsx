@@ -1,6 +1,7 @@
-import React from 'react';
-import { ThreatEntry } from '../../types';
+
+import type { ThreatEntry } from '../../types';
 import { RiskBadge } from '../ui/RiskBadge';
+import { ThreatBreakdown } from '../scanner/ThreatBreakdown';
 
 interface Props { threat: ThreatEntry }
 
@@ -15,7 +16,8 @@ export function ThreatCard({ threat }: Props) {
     threat.score >= 30 ? '#f59e0b' : '#00f2ff';
 
   return (
-    <div className="glass-panel rounded-xl p-4 flex items-center gap-4 hover:border-white/20 transition-all">
+    <div className="glass-panel rounded-xl p-4 flex flex-col hover:border-white/20 transition-all">
+      <div className="flex items-center gap-4">
       {/* Score */}
       <div
         className="shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center"
@@ -46,6 +48,14 @@ export function ThreatCard({ threat }: Props) {
         <p className="text-[10px] font-mono text-white/30">{dateStr}</p>
         <p className="text-[10px] font-mono text-electricCyan/50">{timeStr}</p>
       </div>
+      </div>
+
+      {/* Breakdown */}
+      {threat.breakdown && (
+        <div className="mt-4 border-t border-white/5 pt-4">
+          <ThreatBreakdown breakdown={threat.breakdown} noContainer />
+        </div>
+      )}
     </div>
   );
 }

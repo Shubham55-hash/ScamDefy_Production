@@ -18,11 +18,12 @@ class ThreatEntry(BaseModel):
     user_proceeded: bool
     blocked: bool
     timestamp: str
+    breakdown: Optional[dict] = None
 
 # Centralized in-memory threat database
 threats_db: List[ThreatEntry] = []
 
-def log_threat(id: str, url: str, risk_level: str, score: float, scam_type: str, explanation: str, signals: List[str] = None):
+def log_threat(id: str, url: str, risk_level: str, score: float, scam_type: str, explanation: str, signals: List[str] = None, breakdown: Optional[dict] = None):
     """Internal helper to add a threat from any module."""
     entry = ThreatEntry(
         id=id,
@@ -34,7 +35,8 @@ def log_threat(id: str, url: str, risk_level: str, score: float, scam_type: str,
         signals=signals or [],
         user_proceeded=False,
         blocked=True if risk_level in ["HIGH", "CRITICAL"] else False,
-        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat()
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        breakdown=breakdown
     )
     
     logger.info(f"[ScamDefy] Logging centralized threat: {scam_type} for {url}")

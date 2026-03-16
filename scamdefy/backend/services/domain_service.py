@@ -8,8 +8,10 @@ LEGIT_DOMAINS = [
 ]
 
 PROTECTED_BRANDS = [
-    "paypal", "google", "amazon", "microsoft", "apple",
-    "facebook", "instagram", "netflix", "bank", "secure", "login", "verify"
+    "paypal", "google", "amazon", "microsoft", "apple", "facebook", "instagram", "netflix",
+    "bank", "secure", "login", "verify", "paytm", "gpay", "phonepe", "razorpay", "stripe",
+    "binance", "coinbase", "bitcoin", "ethereum", "meta", "whatsapp", "twitter", "linkedin",
+    "fedex", "dhl", "ups", "irs", "aadhar", "uidai", "support", "help", "billing"
 ]
 
 SUSPICIOUS_TLDS = [

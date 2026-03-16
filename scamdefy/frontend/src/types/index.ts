@@ -47,6 +47,15 @@ export interface VoiceResult {
   timestamp: string;
 }
 
+export interface LiveVerdictEntry {
+  id: string;
+  timestamp: string;
+  verdict: VoiceVerdict;
+  confidence_pct: number;
+  reason?: string;
+  chunk_number: number;
+}
+
 export interface ThreatEntry {
   id: string;
   url: string;
@@ -58,6 +67,7 @@ export interface ThreatEntry {
   user_proceeded: boolean;
   blocked: boolean;
   timestamp: string;
+  breakdown?: ScanBreakdown;
 }
 
 export interface HealthStatus {

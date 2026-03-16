@@ -5,8 +5,8 @@ import { apiClient } from '../api/client';
 import { useAppStore } from '../store/appStore';
 
 const THREATS_STORAGE_KEY = 'scamdefy_threats';
-const BUFFER_MS = 10000; // 10-second progress buffer
-const TICK_MS   = 80;
+const BUFFER_MS = 8000; // 8-second progress buffer
+const TICK_MS   = 100;
 
 function saveThreatLocally(threat: ThreatEntry) {
   try {
@@ -29,6 +29,7 @@ function scanResultToThreat(result: ScanResult): ThreatEntry | null {
     user_proceeded: false,
     blocked: result.should_block,
     timestamp: result.timestamp,
+    breakdown: result.breakdown,
   };
 }
 
@@ -62,8 +63,8 @@ export function useUrlScan() {
       if (intervalRef.current) clearInterval(intervalRef.current);
       setProgress(100);
 
-      // Brief pause at 100% before showing result
-      await new Promise(res => setTimeout(res, 400));
+      // Brief pause at 100% before showing result.
+      await new Promise(res => setTimeout(res, 1000));
 
       setResult(data);
       addScan(data);

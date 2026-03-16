@@ -56,7 +56,7 @@ export function WebThreats() {
           {result && (
             <div className="space-y-4">
               <ScanResultCard result={result} />
-              <ThreatBreakdown result={result} />
+              <ThreatBreakdown breakdown={result.breakdown} />
               <button
                 onClick={reset}
                 className="w-full text-[10px] font-mono uppercase tracking-[0.2em] border border-white/10 rounded-lg py-3 text-white/40 hover:border-electricCyan/30 hover:text-electricCyan/60 transition-all"
