@@ -11,21 +11,19 @@
 </head>
 <body>
 
-  <!-- ─── HEADER ─────────────────────────────────────────────── -->
   <header>
     <div class="brand">
       <div class="brand-hex hexagon-clip">
         <div class="brand-hex-inner hexagon-clip"></div>
       </div>
       <div>
-        <div class="brand-name">ScamDefy <span>v3.0</span></div>
+        <div class="brand-name">ScamDefy</div>
         <div class="brand-tagline">Neural Threat Defense</div>
       </div>
     </div>
     <div id="systemBadge" class="badge protected">PROTECTED</div>
   </header>
 
-  <!-- ─── THREAT STREAM TICKER ─────────────────────────────────── -->
   <div class="threat-stream">
     <div class="threat-stream-label"><span>Threat Stream</span></div>
     <div style="flex:1; overflow:hidden; position:relative;">
@@ -34,95 +32,127 @@
         <span class="cyan">[NEURAL] AI ANALYSIS ENGINE ONLINE</span>
         <span>[INFO] SSL VERIFIED ··· CHAIN VALID</span>
         <span class="magenta">[ALERT] SUSPICIOUS DNS PATTERN FLAGGED</span>
-        <span>[INFO] REDIRECT ORIGIN: ANALYZED</span>
-        <span class="cyan">[SYSTEM] PROTECTION ACTIVE // OPTIMAL</span>
-        <!-- duplicate for seamless loop -->
+        <span>[INFO] DOMAIN AGE CHECK: ACTIVE</span>
+        <span class="cyan">[SYSTEM] IMPERSONATION GUARD: ENABLED</span>
         <span>[INFO] SCANNING ACTIVE PAYLOAD...</span>
         <span class="cyan">[NEURAL] AI ANALYSIS ENGINE ONLINE</span>
         <span>[INFO] SSL VERIFIED ··· CHAIN VALID</span>
         <span class="magenta">[ALERT] SUSPICIOUS DNS PATTERN FLAGGED</span>
-        <span>[INFO] REDIRECT ORIGIN: ANALYZED</span>
-        <span class="cyan">[SYSTEM] PROTECTION ACTIVE // OPTIMAL</span>
+        <span>[INFO] DOMAIN AGE CHECK: ACTIVE</span>
+        <span class="cyan">[SYSTEM] IMPERSONATION GUARD: ENABLED</span>
       </div>
     </div>
   </div>
 
-  <!-- ─── MAIN ───────────────────────────────────────────────── -->
   <main>
-
-    <!-- Nav Toggle -->
     <div class="view-toggle">
       <button id="btn-home" class="active">⬡ Scanner</button>
-      <button id="btn-modules">◈ Modules</button>
+      <button id="btn-modules">◈ Command Centre</button>
       <button id="btn-settings">⚙ Settings</button>
     </div>
 
-    <!-- ── SCANNER VIEW ───────────────────────────────────────── -->
+    <!-- SCANNER VIEW -->
     <section id="view-scanner">
-
-      <!-- Current Page -->
       <div class="card current-page">
         <h3>
           Current Page
-          <button id="btn-refresh-scan" class="btn-refresh" title="Refresh Scan">↻</button>
+          <button id="btn-refresh-scan" class="btn-refresh" title="Force Rescan">↻ Rescan</button>
         </h3>
         <div id="currentPageUrl" class="url-text">Initializing scanner...</div>
         <div class="score-container">
-          <div class="gauge" id="scoreGauge">
-            <span id="scoreValue">--</span>
-          </div>
+          <div class="gauge" id="scoreGauge"><span id="scoreValue">--</span></div>
           <div id="verdictBadge" class="verdict default">SCANNING</div>
         </div>
         <p id="aiExplanation" class="explanation"></p>
+        <div id="riskPills" class="risk-pills"></div>
       </div>
 
-      <!-- Manual Scanner -->
       <div class="card manual-scan">
         <h3>Manual Scanner</h3>
         <input type="text" id="manualUrl" placeholder="Paste any URL to scan...">
-        <button id="btn-scan" class="primary-btn">Scan Now</button>
+        <button id="btn-scan" class="primary-btn">⬡ Scan URL</button>
         <div id="manualScanResult" class="manual-result"></div>
       </div>
 
-      <!-- Voice Detection -->
+      <div class="card payload-scan">
+        <h3>Payload Text Analyzer</h3>
+        <textarea id="payloadText" placeholder="Paste suspicious SMS, WhatsApp, or email text here..." rows="4"></textarea>
+        <button id="btn-payload" class="primary-btn">◈ Analyze Message</button>
+        <div id="payloadResult" class="payload-result"></div>
+      </div>
+
       <div class="card voice-scan">
         <h3>Voice Clone Detection</h3>
-        <input type="file" id="voiceUpload" accept=".wav,.mp3,.ogg,.m4a">
-        <button id="btn-voice" class="primary-btn">Analyze Voice</button>
+        <input type="file" id="voiceUpload" accept=".wav,.mp3,.ogg,.m4a,.opus">
+        <button id="btn-voice" class="primary-btn">◎ Analyze Voice</button>
         <div id="voiceResult" class="voice-result"></div>
       </div>
-
     </section>
 
-    <!-- ── MODULES VIEW ───────────────────────────────────────── -->
+    <!-- COMMAND CENTRE VIEW -->
     <section id="view-modules" style="display:none;">
-      <div class="card" id="moduleContainer">
-        <h3>System Health</h3>
-        <!-- Populated by popup.js -->
+      <div class="card command-centre">
+        <h3>◈ Command Centre — Detection Modules</h3>
+        <div id="moduleGrid" class="module-grid">
+          <div class="module-loading">Checking modules...</div>
+        </div>
+        <div class="module-legend">
+          <span class="legend-item ok">✓ Operational</span>
+          <span class="legend-item fail">✗ Offline</span>
+          <span class="legend-item warn">! Degraded</span>
+        </div>
       </div>
     </section>
 
-    <!-- ── SETTINGS VIEW ──────────────────────────────────────── -->
+    <!-- SETTINGS VIEW -->
     <section id="view-settings" style="display:none;">
       <div class="card">
-        <h3>API Configuration</h3>
-        <label>Google Safe Browsing Key</label>
-        <input type="password" id="gsbKey" placeholder="Enter GSB API key...">
-        <label>Gemini API Key</label>
-        <input type="password" id="geminiKey" placeholder="Enter Gemini API key...">
-        <button id="btn-save-settings" class="primary-btn">Save Configuration</button>
+        <h3>Backend Connection</h3>
+        <label>Backend URL</label>
+        <input type="text" id="backendUrl" placeholder="http://127.0.0.1:8000">
+        <button id="btn-test-connection" class="secondary-btn">Test Connection</button>
+        <div id="connectionStatus" class="connection-status"></div>
+      </div>
+      <div class="card">
+        <h3>Scanner Preferences</h3>
+        <div class="toggle-row">
+          <span>Auto-scan on page load</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoScanToggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Show warning banner (score ≥30)</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="bannerToggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Block dangerous sites (score ≥60)</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="blockToggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <button id="btn-save-settings" class="primary-btn" style="margin-top:12px;">Save Preferences</button>
+      </div>
+      <div class="card">
+        <h3>About</h3>
+        <div class="about-row"><span>App</span><span class="about-val">ScamDefy</span></div>
+        <div class="about-row"><span>Detection Engine</span><span class="about-val cyan-text">Neural v4</span></div>
+        <div class="about-row"><span>Modules</span><span class="about-val">GSB · URLHaus · AI · RDAP</span></div>
       </div>
     </section>
-
   </main>
 
-  <!-- ─── FOOTER ─────────────────────────────────────────────── -->
   <div class="popup-footer">
     <div class="footer-status">
       <span class="protection-dot"></span>
       <span>SECURE_LINK_ESTABLISHED</span>
     </div>
-    <div class="footer-version">v3.0 // NEURAL</div>
+    <div class="footer-version">NEURAL ENGINE // ACTIVE</div>
   </div>
 
   <script type="module" src="popup.js"></script>

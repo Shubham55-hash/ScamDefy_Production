@@ -2,9 +2,14 @@ import ENV from '../config/env.js';
 import { expandUrl } from '../modules/urlExpander.js';
 import { explainRisk } from '../modules/aiExplainer.js';
 
+let _serviceWorkerScanCache = null;
+
+export function injectScanCacheRef(cacheRef) {
+  _serviceWorkerScanCache = cacheRef;
+}
+
 export async function handleMessage(message, sender) {
   const { type, payload } = message;
-
   try {
     switch (type) {
       case 'SCAN_URL':
@@ -39,22 +44,35 @@ export async function handleMessage(message, sender) {
 
 async function scanUrl(url, bypassCache = false) {
   try {
-    // Check local whitelist
-    const storageResult = await new Promise(resolve => chrome.storage.local.get(['whitelist'], resolve));
+    // KEY FIX: clear in-memory service worker cache on forced rescan
+    if (bypassCache && _serviceWorkerScanCache) {
+      _serviceWorkerScanCache.delete(url);
+      console.log('[ScamDefy] Cleared in-memory cache for:', url);
+    }
+
+    const storageResult = await new Promise(resolve =>
+      chrome.storage.local.get(['whitelist'], resolve)
+    );
     const whitelist = storageResult.whitelist || [];
     if (whitelist.includes(url)) {
       return {
         success: true,
-        data: { url, verdict: "SAFE", score: 0, color: "#22c55e", explanation: "User Whitelisted URL" },
-        error: null
+        data: { url, verdict: 'SAFE', score: 0, color: '#22c55e',
+                explanation: 'User Whitelisted URL', flags: [], domain_age: null },
+        error: null,
       };
     }
 
-    const endpoint = `${ENV.BACKEND_URL}${ENV.SCAN_ENDPOINT}${bypassCache ? '?bypass_cache=true' : ''}`;
+    const settingsResult = await new Promise(resolve =>
+      chrome.storage.local.get(['backendUrl'], resolve)
+    );
+    const backendUrl = (settingsResult.backendUrl || ENV.BACKEND_URL).replace(/\/$/, '');
+
+    const endpoint = `${backendUrl}${ENV.SCAN_ENDPOINT}${bypassCache ? '?bypass_cache=true' : ''}`;
     const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url })
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ url }),
     });
 
     if (!response.ok) throw new Error(`Backend scan failed: ${response.status}`);
@@ -67,21 +85,19 @@ async function scanUrl(url, bypassCache = false) {
 
 async function analyzeVoice(base64Audio, filename) {
   try {
-    // base64 to blob
-    const res = await fetch(base64Audio);
+    const res  = await fetch(base64Audio);
     const blob = await res.blob();
 
-    const storage = await new Promise(res => chrome.storage.local.get(['GEMINI_API_KEY'], res));
-    const apiKey = storage.GEMINI_API_KEY;
+    const settingsResult = await new Promise(r =>
+      chrome.storage.local.get(['backendUrl'], r)
+    );
+    const backendUrl = (settingsResult.backendUrl || ENV.BACKEND_URL).replace(/\/$/, '');
 
     const formData = new FormData();
-    formData.append("audio", blob, filename);
+    formData.append('audio', blob, filename);
 
-    const url = `${ENV.BACKEND_URL}${ENV.VOICE_ENDPOINT}${apiKey ? `?api_key=${apiKey}` : ''}`;
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData
-    });
+    const url      = `${backendUrl}${ENV.VOICE_ENDPOINT}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
 
     if (!response.ok) throw new Error(`Backend voice analysis failed: ${response.status}`);
     const data = await response.json();
