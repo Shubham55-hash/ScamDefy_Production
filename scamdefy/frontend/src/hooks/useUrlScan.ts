@@ -1,21 +1,23 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { ScanResult, AppError, ThreatEntry } from '../types';
 import { scanUrl } from '../api/scanService';
 import { apiClient } from '../api/client';
 import { useAppStore } from '../store/appStore';
 
 const THREATS_STORAGE_KEY = 'scamdefy_threats';
+const BUFFER_MS = 10000; // 10-second progress buffer
+const TICK_MS   = 80;
 
 function saveThreatLocally(threat: ThreatEntry) {
   try {
     const existing: ThreatEntry[] = JSON.parse(localStorage.getItem(THREATS_STORAGE_KEY) || '[]');
-    const updated = [threat, ...existing].slice(0, 100); // keep last 100
+    const updated = [threat, ...existing].slice(0, 100);
     localStorage.setItem(THREATS_STORAGE_KEY, JSON.stringify(updated));
   } catch {}
 }
 
 function scanResultToThreat(result: ScanResult): ThreatEntry | null {
-  if (result.score < 30) return null; // only log threats
+  if (result.score < 30) return null;
   return {
     id: result.id,
     url: result.url,
@@ -34,15 +36,35 @@ export function useUrlScan() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
+  const [progress, setProgress] = useState(0);
   const { addScan, addToast } = useAppStore();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const scan = useCallback(async (url: string) => {
     if (!url.trim()) return;
     setLoading(true);
     setError(null);
     setResult(null);
+    setProgress(0);
+
+    const startTime = Date.now();
+
+    // Smooth progress: fill to 90% over BUFFER_MS, hold until API returns
+    intervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(90, (elapsed / BUFFER_MS) * 90);
+      setProgress(pct);
+    }, TICK_MS);
+
     try {
       const data = await scanUrl(url.trim());
+
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      setProgress(100);
+
+      // Brief pause at 100% before showing result
+      await new Promise(res => setTimeout(res, 400));
+
       setResult(data);
       addScan(data);
 
@@ -50,7 +72,6 @@ export function useUrlScan() {
       const threat = scanResultToThreat(data);
       if (threat) {
         saveThreatLocally(threat);
-        // Best-effort push to backend (fire and forget — don't block UI)
         apiClient.post('/api/threats', threat).catch(() => {});
       }
 
@@ -62,14 +83,16 @@ export function useUrlScan() {
         addToast('success', `✓ URL appears safe (${data.score}/100)`);
       }
     } catch (err: any) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
       const appError: AppError = { message: err.message || 'Scan failed. Check backend connection.', retryable: true };
       setError(appError);
       addToast('error', appError.message);
     } finally {
       setLoading(false);
+      setTimeout(() => setProgress(0), 800);
     }
   }, [addScan, addToast]);
 
-  const reset = useCallback(() => { setResult(null); setError(null); }, []);
-  return { result, loading, error, scan, reset };
+  const reset = useCallback(() => { setResult(null); setError(null); setProgress(0); }, []);
+  return { result, loading, error, progress, scan, reset };
 }

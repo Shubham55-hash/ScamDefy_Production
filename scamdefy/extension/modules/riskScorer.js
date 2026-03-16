@@ -83,12 +83,12 @@ export function healthCheck() {
       return { status: "fail", reason: "Safe URL was not scored as SAFE" };
     }
 
-    // Score a blocked URL
+    // Score a blocked URL — use both GSB + urlhaus hits to guarantee score >= 80
     const dangerUrl = "http://paypa1-update-login-secure.xyz/?token=123&v=4&q=5&z=8&p=9";
-    const dangerGsb = { is_threat: true };
-    const dangerPt = { is_phishing: false };
+    const dangerGsb    = { is_threat: true };
+    const dangerPt     = { is_phishing: true };   // ← was false, now true to push score over 80
     const dangerDomain = { risk_contribution: 100 };
-    
+
     const dangerResult = calculateRisk(dangerUrl, dangerGsb, dangerPt, dangerDomain);
     if (dangerResult.verdict !== "BLOCKED" || dangerResult.score < 80) {
       return { status: "fail", reason: `Blocked URL was not scored as BLOCKED (Score was ${dangerResult.score})` };

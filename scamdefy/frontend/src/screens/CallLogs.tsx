@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useVoiceAnalysis } from '../hooks/useVoiceAnalysis';
 import { AudioUploader } from '../components/voice/AudioUploader';
 import { VoiceResult } from '../components/voice/VoiceResult';
@@ -7,22 +7,41 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { analyzeMessage } from '../api/reportService';
 import type { MessageAnalysis } from '../types';
 
+const MSG_BUFFER_MS = 10000;
+const MSG_TICK_MS   = 80;
+
 export function CallLogs() {
   const { result, loading, error, progress, analyze } = useVoiceAnalysis();
   const [msgText, setMsgText] = useState('');
   const [msgLoading, setMsgLoading] = useState(false);
+  const [msgProgress, setMsgProgress] = useState(0);
   const [msgResult, setMsgResult] = useState<MessageAnalysis | null>(null);
   const [msgError, setMsgError] = useState<string | null>(null);
+  const msgIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleAnalyzeMessage = async () => {
     if (!msgText.trim() || msgLoading) return;
-    setMsgLoading(true); setMsgError(null); setMsgResult(null);
+    setMsgLoading(true); setMsgError(null); setMsgResult(null); setMsgProgress(0);
+
+    const startTime = Date.now();
+    msgIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      setMsgProgress(Math.min(90, (elapsed / MSG_BUFFER_MS) * 90));
+    }, MSG_TICK_MS);
+
     try {
       const data = await analyzeMessage(msgText.trim());
+      if (msgIntervalRef.current) clearInterval(msgIntervalRef.current);
+      setMsgProgress(100);
+      await new Promise(res => setTimeout(res, 400));
       setMsgResult(data);
     } catch (err: any) {
+      if (msgIntervalRef.current) clearInterval(msgIntervalRef.current);
       setMsgError(err.message || 'Message analysis failed');
-    } finally { setMsgLoading(false); }
+    } finally {
+      setMsgLoading(false);
+      setTimeout(() => setMsgProgress(0), 800);
+    }
   };
 
   const msgRiskColor = (level: string) => ({
@@ -129,6 +148,22 @@ export function CallLogs() {
         >
           {msgLoading ? <><LoadingSpinner size="sm" />&nbsp;ANALYZING PAYLOAD...</> : '⬡  ANALYZE PAYLOAD'}
         </button>
+
+        {/* Progress bar — visible during message analysis */}
+        {msgLoading && (
+          <div className="mt-3">
+            <div className="flex justify-between text-[9px] font-mono mb-1">
+              <span className="text-electricCyan/50 uppercase tracking-widest">PROCESSING PAYLOAD</span>
+              <span className="text-electricCyan/70">{Math.round(msgProgress)}%</span>
+            </div>
+            <div className="h-1 rounded-full bg-white/5">
+              <div
+                className="h-1 rounded-full transition-all duration-100"
+                style={{ width: `${msgProgress}%`, background: '#00f2ff', boxShadow: '0 0 6px #00f2ff' }}
+              />
+            </div>
+          </div>
+        )}
 
         {msgError && (
           <div className="mt-4">

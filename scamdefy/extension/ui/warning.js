@@ -1,130 +1,222 @@
+/**
+ * warning.js — ScamDefy Threat Warning Page
+ *
+ * Reads scan data from ?url=&data= query params (set by service_worker.js).
+ * Falls back to chrome.storage if data param is absent.
+ *
+ * Button behaviour (matching ScamDefy-main video):
+ *   "Take Me to Safety"  → history.back() or close tab
+ *   "Proceed Anyway"     → native confirm() dialog, then whitelist + navigate
+ */
+
 import ENV from '../config/env.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // -------------------------------------------------------------------------
-  // Read scan data from the URL query param first.
-  // The service worker embeds the scan result as base64 JSON in the ?data=
-  // param when it redirects here. This eliminates the race condition where
-  // storage was written AFTER the redirect so warning.js read empty storage.
-  // -------------------------------------------------------------------------
-  const urlParams = new URLSearchParams(window.location.search);
-  const targetUrl = urlParams.get('url');
-  const rawData = urlParams.get('data');
 
-  if (!targetUrl) {
-    document.getElementById('blockedUrl').textContent = "No URL provided.";
-    return;
+  // ── Parse URL params ──────────────────────────────────────────────────────
+  const params    = new URLSearchParams(window.location.search);
+  const targetUrl = params.get('url')     || '';
+  const rawData   = params.get('data')    || '';
+
+  // ── Risk config ───────────────────────────────────────────────────────────
+  const RISK = {
+    LOW:      { icon: '✅', label: 'LOW RISK',      color: '#00f2ff' },
+    MEDIUM:   { icon: '⚠️', label: 'MEDIUM RISK',   color: '#f59e0b' },
+    HIGH:     { icon: '⚠️', label: 'HIGH RISK',     color: '#ef4444' },
+    CRITICAL: { icon: '☠️', label: 'CRITICAL RISK', color: '#ff00e5' },
+  };
+
+  // ── Verdict → display level map (backend uses BLOCKED/DANGER/CAUTION/SAFE)
+  const VERDICT_TO_LEVEL = {
+    BLOCKED: 'CRITICAL',
+    DANGER:  'HIGH',
+    CAUTION: 'MEDIUM',
+    SAFE:    'LOW',
+    ERROR:   'HIGH',
+  };
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const card           = document.getElementById('warningCard');
+  const shield         = document.getElementById('warningShield');
+  const levelBadge     = document.getElementById('levelBadge');
+  const levelText      = document.getElementById('levelText');
+  const scamTypeEl     = document.getElementById('scamTypeText');
+  const scoreVal       = document.getElementById('riskScoreValue');
+  const barFill        = document.getElementById('barFill');
+  const blockedUrlEl   = document.getElementById('blockedUrl');
+  const explanationEl  = document.getElementById('explanationText');
+  const aiBadge        = document.getElementById('aiBadge');
+  const signalsSection = document.getElementById('signalsSection');
+  const signalsList    = document.getElementById('signalsList');
+
+  // ── Apply risk-level styling ──────────────────────────────────────────────
+  function applyRiskLevel(level, score) {
+    const cfg = RISK[level] || RISK.HIGH;
+
+    if (shield) {
+      shield.textContent = cfg.icon;
+      if (level === 'CRITICAL') shield.classList.add('critical');
+    }
+    if (card && level === 'CRITICAL') {
+      card.classList.add('critical');
+      document.body.classList.add('critical-mode');
+    }
+    if (levelBadge) {
+      levelBadge.style.color       = cfg.color;
+      levelBadge.style.borderColor = cfg.color + '55';
+      levelBadge.style.background  = cfg.color + '18';
+      if (level === 'CRITICAL') levelBadge.classList.add('CRITICAL');
+    }
+    if (levelText) levelText.textContent = cfg.label;
+    if (scoreVal) {
+      scoreVal.textContent = `${score}/100`;
+      scoreVal.style.color = cfg.color;
+      if (level === 'CRITICAL') scoreVal.classList.add('CRITICAL');
+    }
+    if (barFill) {
+      if (level === 'CRITICAL') barFill.classList.add('CRITICAL');
+      // Animate bar fill after short delay for visual effect
+      setTimeout(() => { barFill.style.width = `${Math.min(score, 100)}%`; }, 200);
+    }
   }
 
-  document.getElementById('blockedUrl').textContent = targetUrl;
+  // ── Render threat signals ─────────────────────────────────────────────────
+  function renderSignals(flags, level, score, scamType) {
+    const items = [];
 
-  // Setup Buttons
-  document.getElementById('btnBack').addEventListener('click', () => {
-    if (window.history.length > 2) {
-      window.history.back();
-    } else {
-      chrome.tabs.getCurrent(tab => tab && chrome.tabs.remove(tab.id));
+    if (flags && flags.length > 0) {
+      // Use real flags from scan
+      flags.forEach(f => items.push(
+        f.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      ));
+    } else if (level === 'HIGH' || level === 'CRITICAL') {
+      // Auto-generate contextual signals
+      const t = (scamType || '').toLowerCase();
+      if (t.includes('phish'))       items.push('Detected in phishing threat databases');
+      if (t.includes('impersonat'))  items.push('Domain impersonates a well-known brand');
+      if (t.includes('credential'))  items.push('Login form sends data to external server');
+      if (items.length === 0)        items.push('Multiple security engines flagged this URL');
+      items.push(`Risk score: ${score}/100 — exceeds danger threshold`);
     }
-  });
 
-  document.getElementById('btnProceed').addEventListener('click', async () => {
-    // Add to whitelist so this URL is skipped on future navigations
-    const storageResult = await new Promise(res => chrome.storage.local.get(['whitelist'], res));
-    const whitelist = storageResult.whitelist || [];
-    if (!whitelist.includes(targetUrl)) {
-      whitelist.push(targetUrl);
-      await new Promise(res => chrome.storage.local.set({ whitelist }, res));
-    }
-    window.location.replace(targetUrl);
-  });
-
-  document.getElementById('btnReport').addEventListener('click', async () => {
-    try {
-      await fetch(`${ENV.BACKEND_URL}/api/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: targetUrl, verdict: "FALSE_POSITIVE" })
+    if (items.length > 0 && signalsSection && signalsList) {
+      signalsSection.style.display = 'block';
+      items.forEach(sig => {
+        const li = document.createElement('li');
+        li.className = 'signal-item';
+        li.textContent = sig;
+        signalsList.appendChild(li);
       });
-      alert("Report submitted successfully. Thank you!");
-    } catch (e) {
-      console.warn("Feedback endpoint might not be active, but report recorded locally.");
-      alert("Report recorded.");
     }
-  });
+  }
 
-  // -------------------------------------------------------------------------
-  // Load scan data — prefer query param, fall back to storage poll
-  // -------------------------------------------------------------------------
-
-  /** @type {object|null} */
+  // ── Load and render scan data ─────────────────────────────────────────────
   let data = null;
 
-  // Primary path: scan data is embedded in the redirect URL by service_worker.js
+  // Primary: data is base64-encoded in the URL (set by service_worker.js)
   if (rawData) {
     try {
       data = JSON.parse(atob(rawData));
     } catch (e) {
-      console.warn('[ScamDefy] Could not parse query param data, falling back to storage');
+      console.warn('[ScamDefy] Could not decode data param, falling back to storage');
     }
   }
 
-  if (!data) {
-    // Fallback: poll storage — covers edge cases where the query param is absent
-    // (e.g. manual navigation to warning.html without ?data=)
-    showLoadingSpinner();
+  // Fallback: poll chrome.storage
+  if (!data && targetUrl) {
     const res = await new Promise(resolve =>
       chrome.storage.local.get([`scan_${targetUrl}`], resolve)
     );
-    data = res[`scan_${targetUrl}`];
-    hideLoadingSpinner();
+    data = res[`scan_${targetUrl}`] || null;
   }
 
-  try {
-    if (data) {
-      document.getElementById('riskScore').textContent = data.score;
-      document.getElementById('riskVerdict').textContent = data.verdict;
-      document.getElementById('riskExplanation').innerHTML =
-        data.explanation || "This site exhibits suspicious patterns associated with scams or phishing.";
+  // Determine display values from scan data
+  const displayLevel = data
+    ? (VERDICT_TO_LEVEL[data.verdict] || 'HIGH')
+    : 'HIGH';
+  const displayScore = data ? Math.round(data.score ?? 70) : 70;
+  const displayType  = data?.scam_type  || 'Suspicious Website';
+  const displayExpl  = data?.explanation || 'This website has been flagged as potentially dangerous by multiple AI security systems. It may attempt to steal your credentials, install malware, or defraud you. We strongly recommend you go back to safety.';
+  const displayFlags = data?.flags || [];
 
-      const listEl = document.getElementById('flagList');
-      if (data.flags && data.flags.length > 0) {
-        data.flags.forEach(f => {
-          const li = document.createElement('li');
-          li.textContent = f;
-          listEl.appendChild(li);
-        });
+  // Render blocked URL
+  if (blockedUrlEl) {
+    const disp = targetUrl.length > 72 ? targetUrl.slice(0, 69) + '…' : (targetUrl || 'Unknown URL');
+    blockedUrlEl.textContent = disp;
+  }
+
+  // Apply styling
+  applyRiskLevel(displayLevel, displayScore);
+
+  // Scam type
+  if (scamTypeEl) {
+    scamTypeEl.textContent = displayType;
+    if (displayLevel === 'CRITICAL') scamTypeEl.classList.add('CRITICAL');
+  }
+
+  // AI explanation
+  if (explanationEl) {
+    explanationEl.textContent = displayExpl;
+  }
+  if (aiBadge && data?.explanation) {
+    aiBadge.textContent = '✨ GEMINI AI';
+  } else if (aiBadge) {
+    aiBadge.textContent = 'AI ANALYSIS';
+    aiBadge.style.background = '#374151';
+    aiBadge.style.color = '#9ca3af';
+  }
+
+  // Threat signals
+  renderSignals(displayFlags, displayLevel, displayScore, displayType);
+
+  // ── Button: Take Me to Safety ─────────────────────────────────────────────
+  const btnGoBack = document.getElementById('btnGoBack');
+  if (btnGoBack) {
+    btnGoBack.addEventListener('click', () => {
+      if (window.history.length > 2) {
+        window.history.back();
       } else {
-        const li = document.createElement('li');
-        li.textContent = "High overall risk score based on heuristics.";
-        listEl.appendChild(li);
+        // No history to go back to — close the tab
+        chrome.tabs.getCurrent(tab => tab && chrome.tabs.remove(tab.id));
       }
-    } else {
-      document.getElementById('riskExplanation').textContent =
-        "Scan data not found. This page was blocked by ScamDefy.";
-    }
-  } catch (e) {
-    console.error(e);
+    });
   }
+
+  // ── Button: Proceed Anyway ────────────────────────────────────────────────
+  // Matches video EXACTLY:
+  //   1. Shows native confirm() dialog with scam type, risk score, warning text
+  //   2. If user confirms: adds URL to whitelist, then navigates to the real URL
+  //   3. If user cancels: stays on warning page (nothing happens)
+  const btnProceed = document.getElementById('btnProceed');
+  if (btnProceed) {
+    btnProceed.addEventListener('click', async () => {
+      const destination = targetUrl;
+      if (!destination) return;
+
+      // Native confirm dialog — exactly as shown in video
+      const confirmed = window.confirm(
+        `⚠️ ScamDefy Warning\n\nYou are about to visit a site flagged as:\n${displayType}\n\nRisk Score: ${displayScore}/100\n\nProceeding may put your personal data at risk.\n\nAre you sure you want to continue?`
+      );
+
+      if (!confirmed) return; // User clicked Cancel — stay on warning page
+
+      // Add to whitelist so this URL is not blocked again this session
+      try {
+        const storageResult = await new Promise(res =>
+          chrome.storage.local.get(['whitelist'], res)
+        );
+        const whitelist = storageResult.whitelist || [];
+        if (!whitelist.includes(destination)) {
+          whitelist.push(destination);
+          await new Promise(res => chrome.storage.local.set({ whitelist }, res));
+        }
+      } catch (e) {
+        console.warn('[ScamDefy] Could not update whitelist:', e);
+      }
+
+      // Navigate to the original URL
+      window.location.replace(destination);
+    });
+  }
+
 });
-
-// ---------------------------------------------------------------------------
-// Loading spinner helpers — shown when falling back to storage poll
-// ---------------------------------------------------------------------------
-
-function showLoadingSpinner() {
-  const existing = document.getElementById('__scamdefy_spinner');
-  if (existing) return;
-
-  const el = document.createElement('div');
-  el.id = '__scamdefy_spinner';
-  el.style.cssText = 'text-align:center;padding:16px;font-style:italic;color:#6b7280';
-  el.textContent = 'Loading scan data…';
-
-  const explanation = document.getElementById('riskExplanation');
-  if (explanation) explanation.before(el);
-}
-
-function hideLoadingSpinner() {
-  const el = document.getElementById('__scamdefy_spinner');
-  if (el) el.remove();
-}

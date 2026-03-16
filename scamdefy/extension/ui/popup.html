@@ -4,37 +4,75 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ScamDefy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  
+
+  <!-- ─── HEADER ─────────────────────────────────────────────── -->
   <header>
-    <div class="logo">ScamDefy</div>
-    <div id="systemBadge" class="badge">Protected</div>
+    <div class="brand">
+      <div class="brand-hex hexagon-clip">
+        <div class="brand-hex-inner hexagon-clip"></div>
+      </div>
+      <div>
+        <div class="brand-name">ScamDefy <span>v3.0</span></div>
+        <div class="brand-tagline">Neural Threat Defense</div>
+      </div>
+    </div>
+    <div id="systemBadge" class="badge protected">PROTECTED</div>
   </header>
 
+  <!-- ─── THREAT STREAM TICKER ─────────────────────────────────── -->
+  <div class="threat-stream">
+    <div class="threat-stream-label"><span>Threat Stream</span></div>
+    <div style="flex:1; overflow:hidden; position:relative;">
+      <div class="threat-stream-ticker">
+        <span>[INFO] SCANNING ACTIVE PAYLOAD...</span>
+        <span class="cyan">[NEURAL] AI ANALYSIS ENGINE ONLINE</span>
+        <span>[INFO] SSL VERIFIED ··· CHAIN VALID</span>
+        <span class="magenta">[ALERT] SUSPICIOUS DNS PATTERN FLAGGED</span>
+        <span>[INFO] REDIRECT ORIGIN: ANALYZED</span>
+        <span class="cyan">[SYSTEM] PROTECTION ACTIVE // OPTIMAL</span>
+        <!-- duplicate for seamless loop -->
+        <span>[INFO] SCANNING ACTIVE PAYLOAD...</span>
+        <span class="cyan">[NEURAL] AI ANALYSIS ENGINE ONLINE</span>
+        <span>[INFO] SSL VERIFIED ··· CHAIN VALID</span>
+        <span class="magenta">[ALERT] SUSPICIOUS DNS PATTERN FLAGGED</span>
+        <span>[INFO] REDIRECT ORIGIN: ANALYZED</span>
+        <span class="cyan">[SYSTEM] PROTECTION ACTIVE // OPTIMAL</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── MAIN ───────────────────────────────────────────────── -->
   <main>
+
+    <!-- Nav Toggle -->
     <div class="view-toggle">
-      <button id="btn-home" class="active">Scanner</button>
-      <button id="btn-modules">Modules</button>
-      <button id="btn-settings">⚙️</button>
+      <button id="btn-home" class="active">⬡ Scanner</button>
+      <button id="btn-modules">◈ Modules</button>
+      <button id="btn-settings">⚙ Settings</button>
     </div>
 
-    <!-- Scanner View -->
+    <!-- ── SCANNER VIEW ───────────────────────────────────────── -->
     <section id="view-scanner">
-      
-      <!-- Current Page Status -->
+
+      <!-- Current Page -->
       <div class="card current-page">
-        <h3>Current Page <button id="btn-refresh-scan" class="btn-refresh" title="Refresh Scan">↻</button></h3>
-        <div id="currentPageUrl" class="url-text">Loading...</div>
-        
+        <h3>
+          Current Page
+          <button id="btn-refresh-scan" class="btn-refresh" title="Refresh Scan">↻</button>
+        </h3>
+        <div id="currentPageUrl" class="url-text">Initializing scanner...</div>
         <div class="score-container">
           <div class="gauge" id="scoreGauge">
             <span id="scoreValue">--</span>
           </div>
           <div id="verdictBadge" class="verdict default">SCANNING</div>
         </div>
-        
         <p id="aiExplanation" class="explanation"></p>
       </div>
 
@@ -46,40 +84,46 @@
         <div id="manualScanResult" class="manual-result"></div>
       </div>
 
-      <!-- Voice Scan -->
+      <!-- Voice Detection -->
       <div class="card voice-scan">
         <h3>Voice Clone Detection</h3>
         <input type="file" id="voiceUpload" accept=".wav,.mp3,.ogg,.m4a">
         <button id="btn-voice" class="primary-btn">Analyze Voice</button>
         <div id="voiceResult" class="voice-result"></div>
       </div>
+
     </section>
 
-    <!-- Modules View -->
-    <section id="view-modules" style="display: none;">
+    <!-- ── MODULES VIEW ───────────────────────────────────────── -->
+    <section id="view-modules" style="display:none;">
       <div class="card" id="moduleContainer">
         <h3>System Health</h3>
-        <!-- Filled by JS -->
+        <!-- Populated by popup.js -->
       </div>
     </section>
 
-    <!-- Settings View -->
-    <section id="view-settings" style="display: none;">
+    <!-- ── SETTINGS VIEW ──────────────────────────────────────── -->
+    <section id="view-settings" style="display:none;">
       <div class="card">
-        <h3>API Setup</h3>
-        <label>Google Safe Browsing:</label>
-        <input type="password" id="gsbKey" class="settings-input">
-        
-        <!-- Phishtank replaced by URLhaus which doesn't need an API key -->
-        
-        <label>Gemini API Key:</label>
-        <input type="password" id="geminiKey" class="settings-input">
-        
-        <button id="btn-save-settings" class="primary-btn">Save</button>
+        <h3>API Configuration</h3>
+        <label>Google Safe Browsing Key</label>
+        <input type="password" id="gsbKey" placeholder="Enter GSB API key...">
+        <label>Gemini API Key</label>
+        <input type="password" id="geminiKey" placeholder="Enter Gemini API key...">
+        <button id="btn-save-settings" class="primary-btn">Save Configuration</button>
       </div>
     </section>
 
   </main>
+
+  <!-- ─── FOOTER ─────────────────────────────────────────────── -->
+  <div class="popup-footer">
+    <div class="footer-status">
+      <span class="protection-dot"></span>
+      <span>SECURE_LINK_ESTABLISHED</span>
+    </div>
+    <div class="footer-version">v3.0 // NEURAL</div>
+  </div>
 
   <script type="module" src="popup.js"></script>
 </body>
