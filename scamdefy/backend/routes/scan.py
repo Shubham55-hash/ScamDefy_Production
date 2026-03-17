@@ -207,6 +207,21 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False):
     }
 
     scan_cache[url] = response_data
+    
+    # Log to Surveillance if score >= 30
+    if risk_result["score"] >= 30:
+        log_threat(
+            id=response_data["id"],
+            url=response_data["url"],
+            risk_level=response_data["risk_level"],
+            score=response_data["score"],
+            scam_type=response_data["scam_type"],
+            explanation=response_data["explanation"],
+            signals=flags, # log_threat expects List[str]
+            breakdown=response_data["breakdown"],
+            domain_age=response_data["domain_age"]
+        )
+
     return response_data
 
 

@@ -168,29 +168,55 @@ def score(
                 impersonation_score  = w
                 impersonation_reason = flag.get("detail", impersonation_reason)
 
-    # If it's an authoritative hit, we want it to be prominent (+100)
-    # but we still return the other heuristic scores as they were calculated
-    gsb_contribution = 100.0 if gsb_threat else 0.0
-    uh_contribution  = 100.0 if uh_threat  else 0.0
-
-    final_score = (
-        max(gsb_contribution, uh_contribution) * 0.40 +
-        domain_contribution * 0.15 +
-        url_pattern_score   * 0.15 +
-        age_score           * 0.15 +
-        impersonation_score * 0.15
-    )
-
+    # 1. Calculate weighted contributions
+    gsb_contrib   = 100.0 if gsb_threat else 0.0
+    uh_contrib    = 100.0 if uh_threat  else 0.0
+    
+    # Authoritative hit (GSB/URLHaus) is the primary signal
+    auth_val = max(gsb_contrib, uh_contrib)
+    
+    # Raw components for heuristics
+    # Weights: Auth 40%, Domain 15%, Pattern 15%, Age 15%, Impersonation 15%
+    c_auth    = auth_val * 0.40
+    c_domain  = domain_contribution * 0.15
+    c_pattern = url_pattern_score   * 0.15
+    c_age     = age_score           * 0.15
+    c_imp     = impersonation_score * 0.15
+    
+    # Preliminary weighted sum
+    weighted_sum = c_auth + c_domain + c_pattern + c_age + c_imp
+    
+    # 2. Determine final score with overrides
+    final_score = weighted_sum
     is_authoritative_threat = gsb_threat or uh_threat
+    
     if is_authoritative_threat:
         final_score = 100.0
-    
-    # Floor for suspicious signals to ensure non-zero breakdown for threats
-    if not is_authoritative_threat:
+    else:
+        # Floors for suspicious heuristic combinations
         if impersonation_score > 0 and age_score > 50:
             final_score = max(final_score, 75.0)
         elif impersonation_score > 0:
             final_score = max(final_score, 60.0)
+    
+    # 3. Normalization logic: Scale components so they sum to final_score
+    # This ensures the breakdown shown to the user is intuitive.
+    if final_score > 0:
+        if weighted_sum > 0:
+            ratio = final_score / weighted_sum
+        else:
+            # If all signals were 0 but final_score > 0 (shouldn't happen with current logic),
+            # we don't have a breakdown to show.
+            ratio = 1.0
+            
+        n_gsb     = (gsb_contrib * 0.40) * ratio if gsb_threat else 0.0
+        n_uh      = (uh_contrib  * 0.40) * ratio if uh_threat  else 0.0
+        n_domain  = c_domain  * ratio
+        n_pattern = c_pattern * ratio
+        n_age     = c_age     * ratio
+        n_imp     = c_imp     * ratio
+    else:
+        n_gsb = n_uh = n_domain = n_pattern = n_age = n_imp = 0.0
 
     verdict = "SAFE"
     color   = "#22c55e"
@@ -213,8 +239,9 @@ def score(
         reasons.append(f"⚠️ Brand Risk: {impersonation_reason}")
     if age_reason:
         reasons.append(f"🕐 Age Risk: {age_reason}")
+    elif domain_age_result and domain_age_result.get("age_days") is not None:
+        reasons.append(f"• Domain Age: {domain_age_result['age_days']} days")
     
-    # Concatenate other minor flags
     domain_flags = [f.get("detail", "") for f in domain_result.get("flags", []) 
                     if f.get("detail", "") != impersonation_reason]
     for df in domain_flags[:3]:
@@ -228,12 +255,12 @@ def score(
         "score":        round(final_score, 1),
         "verdict":      verdict,
         "breakdown": {
-            "gsb":           gsb_contribution,
-            "urlhaus":       uh_contribution,
-            "domain":        domain_contribution,
-            "url_pattern":   url_pattern_score,
-            "domain_age":    age_score,
-            "impersonation": impersonation_score,
+            "gsb":           round(n_gsb, 1),
+            "urlhaus":       round(n_uh, 1),
+            "domain":        round(n_domain, 1),
+            "url_pattern":   round(n_pattern, 1),
+            "domain_age":    round(n_age, 1),
+            "impersonation": round(n_imp, 1),
         },
         "color":             color,
         "should_block":      final_score >= 60,

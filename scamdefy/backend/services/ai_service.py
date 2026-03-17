@@ -19,6 +19,10 @@ async def generate_explanation(
         fallback_parts.append(extra_context)
     else:
         fallback_parts.append(f"Flagged for: {flags_str}.")
+    
+    # Try to extract domain age from extra_context or flags if not explicitly passed
+    # (Actually better to just trust the caller provided it in extra_context)
+    
     fallback_parts.append("We recommend NOT visiting this URL.")
     fallback = " ".join(fallback_parts)
 
@@ -35,7 +39,8 @@ async def generate_explanation(
             "You are a cybersecurity expert. Explain in 2-3 sentences (max 70 words) "
             "why this URL is dangerous. Be specific about the attack technique "
             "(e.g. phishing, brand impersonation, typosquatting, malware delivery). "
-            "Mention domain age if relevant. Write for a non-technical user. "
+            "IMPORTANT: ALWAYS mention the domain age if provided in the context (e.g. 'This domain was registered only 2 days ago'). "
+            "Write for a non-technical user. "
             "Start directly with the explanation — no preamble."
         )
 

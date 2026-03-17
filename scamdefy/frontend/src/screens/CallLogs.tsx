@@ -6,7 +6,8 @@ import { LiveMonitor } from '../components/voice/LiveMonitor';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { analyzeMessage } from '../api/reportService';
-import type { MessageAnalysis } from '../types';
+import { scanUrl } from '../api/scanService';
+import type { MessageAnalysis, ScanResult } from '../types';
 
 type VoiceTab = 'upload' | 'live';
 
@@ -22,11 +23,16 @@ export function CallLogs() {
   const [msgProgress, setMsgProgress] = useState(0);
   const [msgResult, setMsgResult] = useState<MessageAnalysis | null>(null);
   const [msgError, setMsgError] = useState<string | null>(null);
+  const [urlScanResult, setUrlScanResult] = useState<ScanResult | null>(null);
+  const [isUrlScanning, setIsUrlScanning] = useState(false);
   const msgIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 
   const handleAnalyzeMessage = async () => {
     if (!msgText.trim() || msgLoading) return;
     setMsgLoading(true); setMsgError(null); setMsgResult(null); setMsgProgress(0);
+    setUrlScanResult(null); setIsUrlScanning(false);
 
     const startTime = Date.now();
     msgIntervalRef.current = setInterval(() => {
@@ -35,6 +41,21 @@ export function CallLogs() {
     }, MSG_TICK_MS);
 
     try {
+      // Step 1: Detect URLs and scan first one if found
+      const urls = msgText.match(URL_REGEX);
+      if (urls && urls.length > 0) {
+        setIsUrlScanning(true);
+        try {
+          const scanRes = await scanUrl(urls[0]);
+          setUrlScanResult(scanRes);
+        } catch (urlErr) {
+          console.error('URL Scan failed:', urlErr);
+          // Don't fail the whole analysis if URL scan fails
+        } finally {
+          setIsUrlScanning(false);
+        }
+      }
+
       const data = await analyzeMessage(msgText.trim());
       if (msgIntervalRef.current) clearInterval(msgIntervalRef.current);
       setMsgProgress(100);
@@ -215,6 +236,31 @@ export function CallLogs() {
             {msgError && (
               <div className="mt-4">
                 <ErrorBanner error={{ message: msgError, retryable: true }} onRetry={handleAnalyzeMessage} />
+              </div>
+            )}
+
+            {/* URL Security Status / Warning */}
+            {isUrlScanning && (
+              <div className="mt-4 glass-panel rounded-lg px-4 py-2 border-l-2 border-electricCyan animate-pulse">
+                <p className="text-[10px] font-mono text-electricCyan uppercase tracking-widest">
+                  🔍 Scanning detected link for security threats...
+                </p>
+              </div>
+            )}
+
+            {urlScanResult && urlScanResult.verdict !== 'SAFE' && (
+              <div className="mt-4 glass-panel rounded-lg px-4 py-4 border-l-4 border-red-500 bg-red-500/10">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-xl">⚠️</span>
+                  <h3 className="text-xs font-bold text-red-400 uppercase tracking-widest">Link Detected Suspicious!</h3>
+                </div>
+                <p className="text-[11px] font-mono text-white/80 leading-relaxed mb-3">
+                  Our URL scanner identified this link as <span className="text-red-400 font-bold">{urlScanResult.risk_level} risk</span>.
+                  Opening it may expose you to phishing or malware.
+                </p>
+                <div className="flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-tighter bg-red-500/20 px-3 py-1.5 rounded border border-red-500/30">
+                  <span>🛑 RECOMMENDATION: DO NOT OPEN THIS LINK</span>
+                </div>
               </div>
             )}
 

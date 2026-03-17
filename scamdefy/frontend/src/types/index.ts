@@ -15,6 +15,9 @@ export interface ScanBreakdown {
   domain: number;
   heuristics: number;
   virustotal: number;
+  domain_age: number;
+  impersonation: number;
+  url_pattern: number;
 }
 
 export interface ScanResult {
@@ -34,6 +37,7 @@ export interface ScanResult {
   cached: boolean;
   scan_time_ms: number;
   timestamp: string;
+  domain_age?: { age_days: number | null; registered_on: string | null; source: string };
 }
 
 export interface VoiceResult {
@@ -68,6 +72,7 @@ export interface ThreatEntry {
   blocked: boolean;
   timestamp: string;
   breakdown?: ScanBreakdown;
+  domain_age?: { age_days: number | null; registered_on: string | null; source: string };
 }
 
 export interface HealthStatus {

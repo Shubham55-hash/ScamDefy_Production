@@ -40,7 +40,17 @@ export function ThreatCard({ threat }: Props) {
           )}
         </div>
         <p className="text-xs font-mono text-white/60 truncate">{threat.url}</p>
-        <p className="text-[10px] font-mono text-white/30 mt-0.5">{threat.scam_type.replace(/_/g, ' ')}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-[10px] font-mono text-white/30 uppercase">{threat.scam_type.replace(/_/g, ' ')}</p>
+          {threat.domain_age && threat.domain_age.age_days !== null && (
+            <>
+              <span className="text-white/10">•</span>
+              <p className="text-[10px] font-mono text-electricCyan/60 uppercase">
+                Age: {threat.domain_age.age_days}d
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Timestamp */}

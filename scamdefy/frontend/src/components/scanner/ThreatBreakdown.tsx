@@ -24,7 +24,7 @@ export function ThreatBreakdown({ breakdown, noContainer }: Props) {
         {SOURCES.map(src => {
           const val = (breakdown as any)[src.key] ?? 0;
           const pct = Math.min(100, Math.abs(val));
-          const color = val > 20 ? '#ef4444' : val > 0 ? '#f59e0b' : '#00f2ff';
+          const color = val > 10 ? '#ef4444' : val > 5 ? '#f59e0b' : '#00f2ff';
           return (
             <div key={src.key}>
               <div className="flex justify-between text-[10px] font-mono mb-1">

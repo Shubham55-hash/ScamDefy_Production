@@ -38,8 +38,8 @@ export function ScanResultCard({ result }: Props) {
         <ScoreGauge score={result.score} size={90} />
       </div>
 
-      {/* Scam type + scan time */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
+      {/* Scam type + scan time + domain age */}
+      <div className={`grid ${result.domain_age ? 'grid-cols-3' : 'grid-cols-2'} gap-3 mb-5`}>
         <div className="glass-panel rounded-lg p-3">
           <p className="text-[9px] font-mono text-white/30 uppercase tracking-widest mb-1">Threat Type</p>
           <p className="text-xs font-mono text-white/80">{result.scam_type.replace(/_/g,' ')}</p>
@@ -48,6 +48,18 @@ export function ScanResultCard({ result }: Props) {
           <p className="text-[9px] font-mono text-white/30 uppercase tracking-widest mb-1">Scan Time</p>
           <p className="text-xs font-mono text-electricCyan">{(result.scan_time_ms + 1000).toFixed(0)} ms</p>
         </div>
+        {result.domain_age && (
+          <div className="glass-panel rounded-lg p-3 border-electricCyan/20 bg-electricCyan/5">
+            <p className="text-[9px] font-mono text-electricCyan/60 uppercase tracking-widest mb-1">Domain Age</p>
+            <p className="text-xs font-mono text-white/80">
+              {result.domain_age.age_days !== null ? (
+                <>{result.domain_age.age_days} <span className="text-[8px] text-white/30">DAYS</span></>
+              ) : (
+                <span className="text-white/20">UNKNOWN</span>
+              )}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* AI explanation */}

@@ -30,6 +30,7 @@ function scanResultToThreat(result: ScanResult): ThreatEntry | null {
     blocked: result.should_block,
     timestamp: result.timestamp,
     breakdown: result.breakdown,
+    domain_age: result.domain_age,
   };
 }
 

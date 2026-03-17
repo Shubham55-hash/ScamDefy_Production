@@ -25,7 +25,16 @@ def _extract_hostname(url: str) -> str:
 
 def _root_domain(hostname: str) -> str:
     parts = hostname.split(".")
-    return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+    if len(parts) <= 2:
+        return hostname
+    
+    # Handle common multi-level TLDs (e.g., .co.uk, .gov.in, .edu.au)
+    # This is a heuristic; for production, use 'tldextract'
+    second_to_last = parts[-2].lower()
+    if second_to_last in ("com", "co", "gov", "org", "edu", "net", "ac"):
+        return ".".join(parts[-3:])
+    
+    return ".".join(parts[-2:])
 
 
 def _parse_date(date_str: str) -> Optional[datetime]:
