@@ -1,4 +1,5 @@
 export type Verdict = 'SAFE' | 'CAUTION' | 'DANGER' | 'BLOCKED';
+export type Screen = 'dashboard' | 'webthreats' | 'calllogs' | 'settings';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'UNKNOWN' | 'UNCERTAIN';
 

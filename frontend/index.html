@@ -8,38 +8,7 @@
     <link href="https://fonts.googleapis.com" rel="preconnect"/>
     <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: { sans: ['Space Grotesk', 'sans-serif'] },
-            colors: {
-              charcoal: '#0a0b0d',
-              'slate-dark': '#161b22',
-              electricCyan: '#00f2ff',
-              electricMagenta: '#ff00e5',
-              glassBg: 'rgba(255,255,255,0.03)',
-              glassBorder: 'rgba(255,255,255,0.1)',
-            },
-            animation: {
-              'spin-slow': 'spin 12s linear infinite',
-              'spin-reverse-slow': 'spin-reverse 20s linear infinite',
-              'pulse-glow': 'pulse-glow 3s ease-in-out infinite',
-              'float': 'float 6s ease-in-out infinite',
-              'float-delay': 'float 6s ease-in-out -2s infinite',
-              'terminal-scroll': 'terminal-scroll 20s linear infinite',
-            },
-            keyframes: {
-              'spin-reverse': { from: { transform: 'rotate(360deg)' }, to: { transform: 'rotate(0deg)' } },
-              'pulse-glow': { '0%,100%': { opacity: '0.6', transform: 'scale(1)' }, '50%': { opacity: '1', transform: 'scale(1.05)' } },
-              'float': { '0%,100%': { transform: 'translateY(0px)' }, '50%': { transform: 'translateY(-20px)' } },
-              'terminal-scroll': { '0%': { transform: 'translateY(0)' }, '100%': { transform: 'translateY(-50%)' } },
-            }
-          }
-        }
-      }
-    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   </head>
   <body>
     <div id="root"></div>

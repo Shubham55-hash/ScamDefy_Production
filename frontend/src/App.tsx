@@ -5,8 +5,7 @@ import { CallLogs } from './screens/CallLogs';
 import { Settings } from './screens/Settings';
 import { ToastContainer } from './components/ui/Toast';
 import { BottomNav } from './components/BottomNav';
-
-export type Screen = 'dashboard' | 'webthreats' | 'calllogs' | 'settings';
+import type { Screen } from './types';
 
 const NAV_LINKS: Array<{ id: Screen; label: string; desktopLabel: string }> = [
   { id: 'dashboard',  label: 'Home',     desktopLabel: 'Command Center'   },
@@ -69,6 +68,7 @@ function ThreatStreamFooter() {
 }
 
 export default function App() {
+  console.log("[ScamDefy] App Component Rendering...");
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
   // Track which screens have been visited — they are mounted once and kept alive.

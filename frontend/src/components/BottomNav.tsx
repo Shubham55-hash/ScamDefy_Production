@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Screen } from '../../App';
+import type { Screen } from '../types';
 
 interface Props { active: Screen; onNav: (s: Screen) => void; }
 
