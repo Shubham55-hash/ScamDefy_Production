@@ -52,6 +52,7 @@ async def add_threat(threat: ThreatEntry):
             status_code=400,
             detail=f"Invalid risk_level '{threat.risk_level}'. Must be one of: {', '.join(sorted(VALID_RISK_LEVELS))}",
         )
+    threat.risk_level = threat.risk_level.upper()
     log_threat(
         id=threat.id,
         url=threat.url,
