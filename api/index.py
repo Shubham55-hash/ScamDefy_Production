@@ -34,7 +34,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_origin_regex=r"^https://scam-?defy[\w-]*\.vercel\.app$",
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Key"],
 )
 
 app.include_router(scan.router, prefix="/api")

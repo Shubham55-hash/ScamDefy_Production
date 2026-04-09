@@ -45,6 +45,10 @@ async def expand_url_backend(short_url: str) -> dict:
     current_url = short_url
     redirect_chain = [short_url]
     
+    MAX_REDIRECTS = 10
+
+    # Validate every hop (initial URL + each redirect target) to prevent
+    # SSRF via open-redirect chains that land on private IPs.
     if _is_private_url(short_url):
         return {
             "original": short_url,
@@ -55,31 +59,40 @@ async def expand_url_backend(short_url: str) -> dict:
         }
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, max_redirects=10, timeout=5.0) as client:
-            response = await client.head(short_url)
-            # httpx.AsyncClient with follow_redirects=True handles the chain
-            # To get the history:
-            final_url = str(response.url)
-            for r in response.history:
-                redirect_chain.append(str(r.headers.get("Location", "")))
-            
-            hop_count = len(response.history)
-            
+        # Disable automatic redirect following so we can validate each hop.
+        async with httpx.AsyncClient(follow_redirects=False, timeout=5.0) as client:
+            while hop_count < MAX_REDIRECTS:
+                response = await client.head(current_url)
+
+                if response.is_redirect:
+                    location = response.headers.get("Location", "")
+                    if not location:
+                        break
+                    # Resolve relative redirects against current URL
+                    location = str(response.url.join(location))
+                    redirect_chain.append(location)
+                    hop_count += 1
+
+                    if _is_private_url(location):
+                        return {
+                            "original": short_url,
+                            "final_url": current_url,
+                            "redirect_chain": redirect_chain,
+                            "hop_count": hop_count,
+                            "error": f"Blocked: redirect hop {hop_count} resolves to a private/reserved IP address"
+                        }
+
+                    current_url = location
+                else:
+                    break
+
             return {
                 "original": short_url,
-                "final_url": final_url,
+                "final_url": current_url,
                 "redirect_chain": redirect_chain,
                 "hop_count": hop_count,
                 "error": None
             }
-    except httpx.TooManyRedirects:
-        return {
-            "original": short_url,
-            "final_url": current_url, # Might not be the final, but the last one attempted
-            "redirect_chain": redirect_chain,
-            "hop_count": 10,
-            "error": "Too many redirects"
-        }
     except httpx.RequestError as exc:
         logging.error(f"Request Error while expanding {short_url}: {exc}")
         return {
