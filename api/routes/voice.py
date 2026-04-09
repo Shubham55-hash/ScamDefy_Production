@@ -33,6 +33,8 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
         raise HTTPException(status_code=400, detail="Unsupported audio format")
 
     file_bytes = await audio.read()
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded audio file is empty")
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 

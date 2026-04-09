@@ -1,11 +1,12 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 import os
 import asyncio
 import time
 import uuid
 import re as _re
+import logging
 from datetime import datetime, timezone
 
 from utils.url_expander import expand_url_backend
@@ -30,8 +31,18 @@ def normalize_url(url: str) -> str:
 router = APIRouter()
 
 
+logger = logging.getLogger(__name__)
+
+
 class ScanRequest(BaseModel):
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def url_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("url must not be empty")
+        return v.strip()
 
 
 class ExplainRequest(BaseModel):
@@ -40,6 +51,27 @@ class ExplainRequest(BaseModel):
     verdict: str
     flags: list
     api_key: Optional[str] = None
+
+    @field_validator("url")
+    @classmethod
+    def url_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("url must not be empty")
+        return v.strip()
+
+    @field_validator("score")
+    @classmethod
+    def score_in_range(cls, v: float) -> float:
+        if v < 0 or v > 100:
+            raise ValueError("score must be between 0 and 100")
+        return v
+
+    @field_validator("verdict")
+    @classmethod
+    def verdict_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("verdict must not be empty")
+        return v.strip()
 
 
 scan_cache = {}
@@ -72,6 +104,8 @@ async def scan_url_post(req: ScanRequest, bypass_cache: bool = False):
 
 @router.get("/scan")
 async def scan_url_get(url: str, bypass_cache: bool = False):
+    if not url or not url.strip():
+        raise HTTPException(status_code=400, detail="url query parameter must not be empty")
     normalized = normalize_url(url)
     return await run_scan_pipeline(normalized, bypass_cache)
 
@@ -112,16 +146,25 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False):
             "timestamp":    datetime.now(timezone.utc).isoformat(),
         }
 
-    expand_result = await expand_url_backend(url)
+    try:
+        expand_result = await expand_url_backend(url)
+    except Exception as exc:
+        logger.error(f"URL expansion failed for {url}: {exc}")
+        raise HTTPException(status_code=502, detail="Failed to expand URL")
+
     final_url = expand_result.get("final_url", url)
     expanded  = expand_result.get("hop_count", 0) > 0
 
-    results = await asyncio.gather(
-        check_gsb(final_url),
-        check_urlhaus(final_url),
-        _async_analyze_domain(final_url),
-        get_domain_age(final_url),
-    )
+    try:
+        results = await asyncio.gather(
+            check_gsb(final_url),
+            check_urlhaus(final_url),
+            _async_analyze_domain(final_url),
+            get_domain_age(final_url),
+        )
+    except Exception as exc:
+        logger.error(f"Service analysis failed for {final_url}: {exc}")
+        raise HTTPException(status_code=502, detail="One or more analysis services failed")
 
     gsb_result, uh_result, domain_result, domain_age_result = results
 
@@ -233,12 +276,23 @@ async def _async_analyze_domain(url: str):
 async def explain_url(req: ExplainRequest):
     if req.api_key:
         os.environ["GEMINI_API_KEY"] = str(req.api_key)
-    explanation = await generate_explanation(req.url, req.score, req.verdict, req.flags)
+    try:
+        explanation = await generate_explanation(req.url, req.score, req.verdict, req.flags)
+    except Exception as exc:
+        logger.error(f"Explanation generation failed for {req.url}: {exc}")
+        raise HTTPException(status_code=502, detail="Failed to generate explanation")
     return {"explanation": explanation}
 
 
 class MessageRequest(BaseModel):
     text: str
+
+    @field_validator("text")
+    @classmethod
+    def text_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("text must not be empty")
+        return v
 
 
 @router.post("/analyze-message")
@@ -328,6 +382,20 @@ class ReportRequest(BaseModel):
     url: str
     reason: str
     notes: str = ""
+
+    @field_validator("url")
+    @classmethod
+    def url_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("url must not be empty")
+        return v.strip()
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("reason must not be empty")
+        return v.strip()
 
 
 @router.post("/report")
