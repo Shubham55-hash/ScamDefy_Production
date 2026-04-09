@@ -1,12 +1,13 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
-import os
+from collections import OrderedDict
 import asyncio
 import time
 import uuid
 import re as _re
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from utils.url_expander import expand_url_backend
 from services.gsb_service import check_url as check_gsb
@@ -16,6 +17,11 @@ from services.risk_service import score as calculate_score
 from services.ai_service import generate_explanation
 from services.domain_age_service import get_domain_age
 from utils.threat_logger import log_threat
+
+
+MAX_URL_LENGTH = 2048
+SCAN_CACHE_MAX_SIZE = 2048
+SCAN_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 def normalize_url(url: str) -> str:
@@ -33,16 +39,57 @@ router = APIRouter()
 class ScanRequest(BaseModel):
     url: str
 
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) > MAX_URL_LENGTH:
+            raise ValueError(f"URL exceeds maximum length of {MAX_URL_LENGTH} characters")
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("URL must use http or https scheme")
+        if not parsed.netloc:
+            raise ValueError("URL must have a valid hostname")
+        return v
+
 
 class ExplainRequest(BaseModel):
     url: str
     score: float
     verdict: str
     flags: list
-    api_key: Optional[str] = None
 
 
-scan_cache = {}
+class TTLCache:
+    """Simple LRU cache with TTL expiry and bounded size."""
+
+    def __init__(self, max_size: int = SCAN_CACHE_MAX_SIZE, ttl: int = SCAN_CACHE_TTL_SECONDS):
+        self._cache: OrderedDict = OrderedDict()
+        self._max_size = max_size
+        self._ttl = ttl
+
+    def get(self, key: str):
+        if key not in self._cache:
+            return None
+        entry = self._cache[key]
+        if time.time() - entry["ts"] > self._ttl:
+            del self._cache[key]
+            return None
+        self._cache.move_to_end(key)
+        return entry["value"]
+
+    def set(self, key: str, value):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        self._cache[key] = {"value": value, "ts": time.time()}
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)
+
+    def __contains__(self, key: str) -> bool:
+        return self.get(key) is not None
+
+
+scan_cache = TTLCache()
 
 
 def _flags_to_scam_type(flags: list) -> str:
@@ -72,6 +119,14 @@ async def scan_url_post(req: ScanRequest, bypass_cache: bool = False):
 
 @router.get("/scan")
 async def scan_url_get(url: str, bypass_cache: bool = False):
+    url = url.strip()
+    if len(url) > MAX_URL_LENGTH:
+        raise HTTPException(status_code=400, detail=f"URL exceeds maximum length of {MAX_URL_LENGTH} characters")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="URL must use http or https scheme")
+    if not parsed.netloc:
+        raise HTTPException(status_code=400, detail="URL must have a valid hostname")
     normalized = normalize_url(url)
     return await run_scan_pipeline(normalized, bypass_cache)
 
@@ -79,8 +134,9 @@ async def scan_url_get(url: str, bypass_cache: bool = False):
 async def run_scan_pipeline(url: str, bypass_cache: bool = False):
     start_time = time.time()
 
-    if not bypass_cache and url in scan_cache:
-        result = dict(scan_cache[url])
+    cached_result = scan_cache.get(url) if not bypass_cache else None
+    if cached_result is not None:
+        result = dict(cached_result)
         result["cached"] = True
         result["scan_time_ms"] = int((time.time() - start_time) * 1000)
         return result
@@ -206,7 +262,7 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False):
         "timestamp":    datetime.now(timezone.utc).isoformat(),
     }
 
-    scan_cache[url] = response_data
+    scan_cache.set(url, response_data)
     
     # Log to Surveillance if score >= 30
     if risk_result["score"] >= 30:
@@ -231,8 +287,6 @@ async def _async_analyze_domain(url: str):
 
 @router.post("/explain")
 async def explain_url(req: ExplainRequest):
-    if req.api_key:
-        os.environ["GEMINI_API_KEY"] = str(req.api_key)
     explanation = await generate_explanation(req.url, req.score, req.verdict, req.flags)
     return {"explanation": explanation}
 

@@ -32,6 +32,11 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
     if not any(ext.endswith(fmt) for fmt in ACCEPTED_FORMATS):
         raise HTTPException(status_code=400, detail="Unsupported audio format")
 
+    # Check Content-Length header first to reject oversized uploads early,
+    # then enforce the limit after reading as a safeguard.
+    if audio.size and audio.size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+
     file_bytes = await audio.read()
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")

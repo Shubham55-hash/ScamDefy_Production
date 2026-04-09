@@ -1,8 +1,21 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException
 from typing import Optional
+import os
 from utils.threat_logger import ThreatEntry, get_all_threats, clear_all_threats, log_threat
 
 router = APIRouter()
+
+
+def _verify_admin_key(x_admin_key: Optional[str] = Header(None)):
+    """Verify the admin API key for destructive operations."""
+    expected = os.getenv("SCAMDEFY_ADMIN_KEY")
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin key not configured on server",
+        )
+    if not x_admin_key or x_admin_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing admin key")
 
 @router.get("/threats/stats")
 async def get_stats():
@@ -29,12 +42,14 @@ async def get_threats(limit: int = 50, risk_level: Optional[str] = None):
     return {"threats": results, "total": len(db)}
 
 @router.delete("/threats")
-async def clear_threats():
+async def clear_threats(x_admin_key: Optional[str] = Header(None)):
+    _verify_admin_key(x_admin_key)
     clear_all_threats()
     return {"message": "Threats cleared successfully"}
 
 @router.post("/threats")
-async def add_threat(threat: ThreatEntry):
+async def add_threat(threat: ThreatEntry, x_admin_key: Optional[str] = Header(None)):
+    _verify_admin_key(x_admin_key)
     log_threat(
         id=threat.id,
         url=threat.url,

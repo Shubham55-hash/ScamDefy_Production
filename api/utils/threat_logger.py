@@ -21,7 +21,8 @@ class ThreatEntry(BaseModel):
     breakdown: Optional[dict] = None
     domain_age: Optional[dict] = None
 
-# Centralized in-memory threat database
+# Centralized in-memory threat database with FIFO eviction
+MAX_THREATS_DB_SIZE = 10000
 threats_db: List[ThreatEntry] = []
 
 def log_threat(id: str, url: str, risk_level: str, score: float, scam_type: str, explanation: str, signals: List[str] = None, breakdown: Optional[dict] = None, domain_age: Optional[dict] = None):
@@ -46,6 +47,9 @@ def log_threat(id: str, url: str, risk_level: str, score: float, scam_type: str,
     # Check for duplicates
     if not any(t.id == entry.id for t in threats_db):
         threats_db.append(entry)
+        # Evict oldest entries when limit is exceeded
+        while len(threats_db) > MAX_THREATS_DB_SIZE:
+            threats_db.pop(0)
         logger.info(f"[ScamDefy] Global threats_db now has {len(threats_db)} entries.")
     else:
         logger.info(f"[ScamDefy] Global threat {entry.id} already exists.")
