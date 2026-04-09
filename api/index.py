@@ -32,7 +32,7 @@ CORS_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_origin_regex=r"^https://scamdefy[\w-]*\.vercel\.app$",
+    allow_origin_regex=r"^https://scam-?defy[\w-]*\.vercel\.app$",
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
