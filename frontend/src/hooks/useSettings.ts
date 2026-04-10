@@ -6,19 +6,11 @@ const STORAGE_KEY = 'scamdefy_settings';
 interface Settings {
   backendUrl: string;
   protectionLevel: 'conservative' | 'balanced' | 'aggressive';
-  geminiKey: string;
-  gsbKey: string;
-  ipqsKey: string;
-  vtKey: string;
 }
 
 const DEFAULTS: Settings = {
   backendUrl: ENV.API_BASE,
   protectionLevel: 'balanced',
-  geminiKey: '',
-  gsbKey: '',
-  ipqsKey: '',
-  vtKey: '',
 };
 
 export function useSettings() {

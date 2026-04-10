@@ -107,12 +107,26 @@
     <!-- SETTINGS VIEW -->
     <section id="view-settings" style="display:none;">
       <div class="card">
+        <h3>◈ Defense Protocol</h3>
+        <div class="protocol-status">
+          <span id="protocolBadge" class="protocol-badge">BALANCED</span>
+        </div>
+        <p class="explanation" id="protocolDesc" style="margin-top:8px; font-size:11px; color:rgba(255,255,255,0.4);">
+          Balanced protection — Block at ≥ 40, warn at ≥ 30.
+        </p>
+        <p class="explanation" style="margin-top:12px; font-size:10px; color:rgba(0,242,255,0.5);">
+          Set protocol on the <a href="http://localhost:5173/settings" target="_blank" style="color:inherit; text-decoration:underline;">Dashboard</a>
+        </p>
+      </div>
+
+      <div class="card">
         <h3>Backend Connection</h3>
         <label>Backend URL</label>
         <input type="text" id="backendUrl" placeholder="http://127.0.0.1:8000">
         <button id="btn-test-connection" class="secondary-btn">Test Connection</button>
         <div id="connectionStatus" class="connection-status"></div>
       </div>
+
       <div class="card">
         <h3>Scanner Preferences</h3>
         <div class="toggle-row">
@@ -123,14 +137,14 @@
           </label>
         </div>
         <div class="toggle-row">
-          <span>Show warning banner (score ≥30)</span>
+          <span>Show warning banner (score ≥<span id="lbl-banner-threshold">30</span>)</span>
           <label class="toggle-switch">
             <input type="checkbox" id="bannerToggle" checked>
             <span class="toggle-slider"></span>
           </label>
         </div>
         <div class="toggle-row">
-          <span>Block dangerous sites (score ≥60)</span>
+          <span>Block dangerous sites (score ≥<span id="lbl-popup-threshold">40</span>)</span>
           <label class="toggle-switch">
             <input type="checkbox" id="blockToggle" checked>
             <span class="toggle-slider"></span>
@@ -138,6 +152,7 @@
         </div>
         <button id="btn-save-settings" class="primary-btn" style="margin-top:12px;">Save Preferences</button>
       </div>
+
       <div class="card">
         <h3>Experimental / Debug</h3>
         <p class="explanation" style="margin-bottom:8px; font-size:11px; opacity:0.8;">

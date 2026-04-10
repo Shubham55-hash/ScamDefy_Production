@@ -26,22 +26,19 @@ export async function explainRisk(url, score, verdict, flagsList) {
     
     if (cached) return cached;
 
-    // Check local storage for API key (optional, backend usually handles it)
-    const apiKey = await new Promise(resolve => {
-      chrome.storage.local.get(['GEMINI_API_KEY'], result => {
-        resolve(result.GEMINI_API_KEY || ENV.GEMINI_API_KEY);
-      });
+    // Check local storage for API key
+    const settings = await new Promise(resolve => {
+      chrome.storage.local.get(['geminiKey', 'backendUrl'], resolve);
     });
 
-    if (!apiKey) {
-      return fallback;
-    }
+    const apiKey = settings.geminiKey || ENV.GEMINI_API_KEY || "";
+    const backendUrl = (settings.backendUrl || ENV.BACKEND_URL).replace(/\/$/, '');
 
     // Call Backend for Gemini explanation
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    const response = await fetch(`${ENV.BACKEND_URL}/api/explain`, {
+    const response = await fetch(`${backendUrl}/api/explain`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -49,7 +46,7 @@ export async function explainRisk(url, score, verdict, flagsList) {
         score,
         verdict,
         flags: flagsList,
-        api_key: apiKey // Pass if user configured it in popup
+        api_key: apiKey
       }),
       signal: controller.signal
     });

@@ -33,6 +33,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.alarms.create('cacheCleanup',     { periodInMinutes: 1  });
 });
 
+// Also run health checks when the browser starts up (service worker waking after a restart)
+chrome.runtime.onStartup.addListener(async () => {
+  console.log('[ScamDefy] onStartup — running startup health check...');
+  await runAllHealthChecks();
+});
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'healthCheckAlarm') await runAllHealthChecks();
   if (alarm.name === 'cacheCleanup') {
@@ -43,9 +49,25 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SYNC_SETTINGS') {
     handleSyncSettings(message.payload).then(sendResponse);
+    return true;
+  }
+  if (message.type === 'OPEN_WARNING') {
+    const url = message.payload.url;
+    const cached = scanCache.get(url);
+    if (cached && cached.result) {
+      showWarningPage(sender.tab.id, url, cached.result.data || cached.result);
+    } else {
+      // Fallback: trigger a new scan then show warning
+      handleMessage({ type: 'SCAN_URL', payload: { url } }, null)
+        .then(res => {
+          if (res && res.success) showWarningPage(sender.tab.id, url, res.data);
+        });
+    }
+    sendResponse({ success: true });
     return true;
   }
   handleMessage(message, sender)
@@ -55,10 +77,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleSyncSettings(settings) {
-  const { protectionLevel } = settings;
+  const { 
+    protectionLevel, 
+    backendUrl 
+  } = settings;
+
   const mapping = {
     conservative: { popup: 80, banner: 50 },
-    balanced:     { popup: 40, banner: 30 }, // User requested > 40 for block
+    balanced:     { popup: 40, banner: 30 }, 
     aggressive:   { popup: 20, banner: 1  }
   };
   
@@ -72,8 +98,11 @@ async function handleSyncSettings(settings) {
     protectionLevel,
     popupThreshold:  thresholds.popup,
     bannerThreshold: thresholds.banner,
-    backendUrl:      settings.backendUrl
+    backendUrl
   });
+
+  // Re-run health checks now that keys might have changed
+  await runAllHealthChecks();
   
   return { success: true };
 }
@@ -84,9 +113,7 @@ function shouldSkipUrl(url) {
     url.startsWith('chrome://') ||
     url.startsWith('chrome-extension://') ||
     url.startsWith('about:') ||
-    url.startsWith('data:') ||
-    url.includes('localhost') ||
-    url.includes('127.0.0.1')
+    url.startsWith('data:')
   );
 }
 
@@ -192,6 +219,9 @@ async function handleScanResult(tabId, url, scanResponse) {
 
   // ── Logic Fix: Force block only if it's a confirmed authoritative threat (GSB/URLhaus)
   // or if the heuristic risk score strictly exceeds the protocol's threshold.
+  const result = scanResponse.data;
+  const score = result.score || 0;
+
   const isAuthoritative = result.authoritative_hit === true;
   const shouldShowPopup = (blockDangerous && isAuthoritative) || score > POPUP_THRESHOLD;
 
@@ -221,7 +251,7 @@ async function showWarningPage(tabId, url, result) {
   const binString  = Array.from(uint8, b => String.fromCharCode(b)).join('');
   const encoded    = btoa(binString);
   const warningUrl = chrome.runtime.getURL(
-    `ui/warning.html?url=${encodeURIComponent(url)}&data=${encoded}`
+    `ui/warning.html?url=${encodeURIComponent(url)}&data=${encodeURIComponent(encoded)}`
   );
   console.log('[ScamDefy] ⚡ Redirecting tab to warning page:', warningUrl);
 

@@ -1,5 +1,5 @@
 export type Verdict = 'SAFE' | 'CAUTION' | 'DANGER' | 'BLOCKED';
-export type Screen = 'dashboard' | 'webthreats' | 'calllogs' | 'settings';
+export type Screen = 'landing' | 'dashboard' | 'webthreats' | 'calllogs' | 'settings' | 'testlab';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'UNKNOWN' | 'UNCERTAIN';
 
@@ -61,7 +61,7 @@ export interface LiveVerdictEntry {
   chunk_number: number;
 }
 
-export interface ThreatEntry {
+export type ThreatEntry = {
   id: string;
   url: string;
   risk_level: RiskLevel;
@@ -74,7 +74,7 @@ export interface ThreatEntry {
   timestamp: string;
   breakdown?: ScanBreakdown;
   domain_age?: { age_days: number | null; registered_on: string | null; source: string };
-}
+};
 
 export interface HealthStatus {
   status: string;

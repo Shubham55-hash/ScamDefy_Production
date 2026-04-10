@@ -1,6 +1,7 @@
 import ENV from '../config/env.js';
 import { expandUrl } from '../modules/urlExpander.js';
 import { explainRisk } from '../modules/aiExplainer.js';
+import { runAllHealthChecks } from './healthCheck.js';
 
 let _serviceWorkerScanCache = null;
 
@@ -29,6 +30,12 @@ export async function handleMessage(message, sender) {
             resolve({ success: true, data: result.moduleStatus || [], error: null });
           });
         });
+
+      case 'RUN_HEALTH_CHECK': {
+        // Force a live health check and return fresh results
+        const freshResults = await runAllHealthChecks();
+        return { success: true, data: freshResults || [], error: null };
+      }
 
       case 'ANALYZE_VOICE':
         return await analyzeVoice(payload.base64Audio, payload.filename);

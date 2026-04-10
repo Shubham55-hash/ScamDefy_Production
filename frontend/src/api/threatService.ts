@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { ThreatEntry } from '../types';
+import type { ThreatEntry } from '../types';
 
 export async function getThreats(limit = 50, riskLevel?: string) {
   const params: Record<string, any> = { limit };

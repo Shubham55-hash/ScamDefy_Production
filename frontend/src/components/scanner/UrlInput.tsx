@@ -10,7 +10,13 @@ export function UrlInput({ onScan, loading }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (url.trim() && !loading) onScan(url.trim());
+    if (!url.trim() || loading) return;
+
+    let target = url.trim();
+    if (!/^https?:\/\//i.test(target)) {
+      target = 'http://' + target;
+    }
+    onScan(target);
   };
 
   return (

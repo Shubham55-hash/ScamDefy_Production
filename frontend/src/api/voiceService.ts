@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { VoiceResult } from '../types';
+import type { VoiceResult } from '../types';
 
 export async function analyzeVoice(file: File): Promise<VoiceResult> {
   const form = new FormData();

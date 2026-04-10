@@ -41,6 +41,10 @@ body {
   font-family: 'Space Grotesk', sans-serif;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 /* Glass panel utility */
 .glass-panel {
   background: rgba(255, 255, 255, 0.03);

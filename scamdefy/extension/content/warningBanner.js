@@ -35,17 +35,40 @@ window.__scamdefyShowBanner = function({ verdict, score, url, color }) {
         : `${verdict}${scoreText}`;
 
     // "View Details" link only shown when the scan has completed (not SCANNING state)
-    const detailsLink = verdict !== 'SCANNING'
-        ? `<a href="#" onclick="chrome.runtime.sendMessage({type:'OPEN_WARNING',url:'${encodeURIComponent(url)}'})" style="color:#fff;text-decoration:underline;white-space:nowrap">View Details</a>`
-        : '';
+    const detailsLinkContainer = document.createElement('div');
+    if (verdict !== 'SCANNING') {
+        const link = document.createElement('a');
+        link.href = '#';
+        link.id = '__scamdefy_view_details';
+        link.textContent = 'View Details';
+        link.style.cssText = 'color:#fff;text-decoration:underline;white-space:nowrap;margin-left:12px;cursor:pointer;';
+        
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Check if extension context is valid
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+                chrome.runtime.sendMessage({ type: 'OPEN_WARNING', payload: { url } });
+            } else {
+                console.warn('[ScamDefy] Extension connection lost. Please refresh the page.');
+                banner.remove();
+            }
+        });
+        detailsLinkContainer.appendChild(link);
+    }
 
     banner.innerHTML = `
         <span style="flex:1">&#9888; ScamDefy: ${label}</span>
-        ${detailsLink}
-        <button onclick="document.getElementById('__scamdefy_banner').remove()"
-            style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0;line-height:1"
-            aria-label="Dismiss ScamDefy warning">&times;</button>
     `;
+    
+    if (detailsLinkContainer.firstChild) {
+        banner.appendChild(detailsLinkContainer.firstChild);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0;line-height:1;margin-left:12px;';
+    closeBtn.onclick = () => banner.remove();
+    banner.appendChild(closeBtn);
 
     // Prepend to documentElement (not body) so it works on pages with unusual body positioning
     document.documentElement.appendChild(banner);

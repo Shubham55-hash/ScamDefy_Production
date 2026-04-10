@@ -1,6 +1,7 @@
 import urllib.parse
 import re
 from typing import Dict, Any, List
+from services.domain_service import levenshtein
 
 FAMOUS_BRANDS = [
     # Financial
@@ -55,13 +56,27 @@ def get_brand_impersonation(hostname: str) -> Dict[str, Any]:
     root = _root_domain(hostname_clean)
     if root in LEGITIMATE_BRAND_DOMAINS:
         return {"impersonates": None, "weight": 0}
+        
+    main_part = root.split('.')[0]
+    
     for brand in FAMOUS_BRANDS:
+        # Direct containment check
         if brand in hostname_clean:
             return {
                 "impersonates": brand,
                 "weight": 70,
                 "detail": f"Impersonating '{brand}' — not the official domain",
             }
+        
+        # Levenshtein check for typosquats in the root domain part
+        dist = levenshtein(main_part, brand)
+        if dist <= 2:
+             return {
+                "impersonates": brand,
+                "weight": 60,
+                "detail": f"Typosquatted impersonation of '{brand}'",
+            }
+            
     return {"impersonates": None, "weight": 0}
 
 

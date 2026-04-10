@@ -3,15 +3,18 @@ import { Dashboard } from './screens/Dashboard';
 import { WebThreats } from './screens/WebThreats';
 import { CallLogs } from './screens/CallLogs';
 import { Settings } from './screens/Settings';
+import { TestDashboard } from './screens/TestDashboard';
+import { LandingPage } from './screens/LandingPage';
 import { ToastContainer } from './components/ui/Toast';
 import { BottomNav } from './components/BottomNav';
 import type { Screen } from './types';
 
-const NAV_LINKS: Array<{ id: Screen; label: string; desktopLabel: string }> = [
+const NAV_LINKS: Array<{ id: Screen; label: string; desktopLabel: string; testOnly?: boolean }> = [
   { id: 'dashboard',  label: 'Home',     desktopLabel: 'Command Center'   },
   { id: 'webthreats', label: 'Scanner',  desktopLabel: 'Surveillance'     },
   { id: 'calllogs',   label: 'Voice',    desktopLabel: 'Neural Net'        },
   { id: 'settings',   label: 'Settings', desktopLabel: 'Encrypted Logs'   },
+  { id: 'testlab',    label: 'Test',     desktopLabel: 'Test Lab ⚗',       testOnly: true },
 ];
 
 // Background ambience — shared across all screens
@@ -69,12 +72,39 @@ function ThreatStreamFooter() {
 
 export default function App() {
   console.log("[ScamDefy] App Component Rendering...");
-  const [screen, setScreen] = useState<Screen>('dashboard');
+  // Test mode: activated via ?testmode=1 URL param OR localStorage sd_testmode=1
+  const [testMode] = useState<boolean>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('testmode') === '1' ||
+             localStorage.getItem('sd_testmode') === '1';
+    } catch (e) {
+      console.warn("[ScamDefy] Failed to read localStorage/params", e);
+      return false;
+    }
+  });
+
+  const [screen, setScreen] = useState<Screen>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('testmode') === '1' ? 'testlab' : 'landing';
+    } catch (e) {
+      return 'landing';
+    }
+  });
+
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
-  // Track which screens have been visited — they are mounted once and kept alive.
-  // This avoids mounting all screens at startup (slow) while still preserving state
-  // when navigating away and back.
-  const [visited, setVisited] = useState<Set<Screen>>(new Set(['dashboard']));
+
+  const [visited, setVisited] = useState<Set<Screen>>(() => {
+    try {
+      const initial = new Set<Screen>(['landing']);
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('testmode') === '1') initial.add('testlab');
+      return initial;
+    } catch (e) {
+      return new Set<Screen>(['landing']);
+    }
+  });
 
   const navigate = (s: Screen) => {
     setScreen(s);
@@ -94,7 +124,7 @@ export default function App() {
       <ToastContainer />
 
       {/* Desktop top nav */}
-      {isDesktop && (
+      {isDesktop && screen !== 'landing' && (
         <header className="fixed top-0 left-0 w-full z-50 px-6 py-4 flex justify-between items-center mix-blend-lighten glass-panel border-b border-white/5">
           {/* Logo */}
           <button
@@ -111,15 +141,18 @@ export default function App() {
 
           {/* Nav links */}
           <nav className="flex space-x-8 text-xs font-medium tracking-[0.3em] uppercase">
-            {NAV_LINKS.map(link => {
+            {NAV_LINKS.filter(link => !link.testOnly || testMode).map(link => {
               const active = screen === link.id;
+              const isTestLink = link.id === 'testlab';
               return (
                 <button
                   key={link.id}
                   onClick={() => navigate(link.id)}
                   className={`transition-colors ${
                     active
-                      ? 'text-electricMagenta border-b border-electricMagenta pb-0.5'
+                      ? isTestLink
+                        ? 'text-electricMagenta border-b border-electricMagenta pb-0.5'
+                        : 'text-electricCyan border-b border-electricCyan pb-0.5'
                       : 'opacity-60 hover:text-electricCyan hover:opacity-100'
                   }`}
                 >
@@ -137,22 +170,23 @@ export default function App() {
         </header>
       )}
 
-      {/* Lazy-mount: only mount a screen after first visit, then keep it alive to
-          preserve voice results, selected file, message text, etc. across navigation. */}
-      <main className={`relative z-10 ${isDesktop ? 'pt-20 pb-16' : 'pb-28'}`}>
+      {/* Lazy-mount */}
+      <main className={`relative z-10 ${screen === 'landing' ? '' : (isDesktop ? 'pt-20 pb-16' : 'pb-28')}`}>
+        {visited.has('landing')    && <div style={{ display: screen === 'landing'    ? 'block' : 'none' }}><LandingPage onNavigate={navigate} /></div>}
         {visited.has('dashboard')  && <div style={{ display: screen === 'dashboard'  ? 'block' : 'none' }}><Dashboard /></div>}
         {visited.has('webthreats') && <div style={{ display: screen === 'webthreats' ? 'block' : 'none' }}><WebThreats /></div>}
         {visited.has('calllogs')   && <div style={{ display: screen === 'calllogs'   ? 'block' : 'none' }}><CallLogs /></div>}
         {visited.has('settings')   && <div style={{ display: screen === 'settings'   ? 'block' : 'none' }}><Settings /></div>}
+        {testMode && visited.has('testlab') && <div style={{ display: screen === 'testlab' ? 'block' : 'none' }}><TestDashboard /></div>}
       </main>
 
       {/* Mobile bottom nav */}
-      {!isDesktop && (
-        <BottomNav active={screen} onNav={navigate} />
+      {!isDesktop && screen !== 'landing' && (
+        <BottomNav active={screen} onNav={navigate} testMode={testMode} />
       )}
 
-      {/* Threat stream footer — always visible */}
-      <ThreatStreamFooter />
+      {/* Threat stream footer — always visible except on landing page */}
+      {screen !== 'landing' && <ThreatStreamFooter />}
     </div>
   );
 }

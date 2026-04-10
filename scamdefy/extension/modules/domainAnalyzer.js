@@ -14,54 +14,62 @@ const SUSPICIOUS_TLDS = [
   ".pw", ".top", ".click", ".download", ".zip", ".review", ".country"
 ];
 
-// Levenshtein distance implementation inline
 function levenshtein(a, b) {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
+  if (!a) return b.length;
+  if (!b) return a.length;
 
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
+  const d = Array(a.length + 1).fill(null).map(() => Array(b.length + 1).fill(0));
+  
+  for (let i = 0; i <= a.length; i++) d[i][0] = i;
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
 
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          Math.min(
-            matrix[i][j - 1] + 1, // insertion
-            matrix[i - 1][j] + 1  // deletion
-          )
-        );
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,      // deletion
+        d[i][j - 1] + 1,      // insertion
+        d[i - 1][j - 1] + cost // substitution
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1); // transposition
       }
     }
   }
-  return matrix[b.length][a.length];
+  return d[a.length][b.length];
+}
+
+function _getDomainParts(hostname) {
+  const parts = hostname.split('.');
+  if (parts.length < 2) return { main: hostname, tld: '', root: hostname };
+
+  // Heuristic for common multi-part TLDs
+  const secondToLast = parts[parts.length - 2];
+  const list = ["com", "co", "gov", "org", "edu", "net", "ac", "sch", "res"];
+  if (list.includes(secondToLast)) {
+    if (parts.length >= 3) {
+      return {
+        main: parts[parts.length - 3],
+        tld: "." + parts.slice(-2).join('.'),
+        root: parts.slice(-3).join('.')
+      };
+    }
+  }
+
+  return {
+    main: parts[parts.length - 2],
+    tld: "." + parts[parts.length - 1],
+    root: parts.slice(-2).join('.')
+  };
 }
 
 function extractDomainInfo(urlStr) {
   try {
     const url = new URL(urlStr);
-    const hostname = url.hostname.toLowerCase();
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+    const { main, tld, root } = _getDomainParts(hostname);
     
-    // Split into parts
-    const parts = hostname.split('.');
-    
-    // TLD could be complex (co.uk) but for simplicity we take the last part
-    // or known multi-part TLDs. Let's just use the last part for basic TLD check.
-    const tld = "." + parts[parts.length - 1];
-    
-    // Main domain (e.g. "google" from "www.google.com")
-    let mainDomainPart = parts.length > 1 ? parts[parts.length - 2] : parts[0];
-    let fullDomain = parts.length > 1 ? `${mainDomainPart}${tld}` : hostname;
-
-    return { hostname, tld, mainDomainPart, fullDomain, parts };
+    return { hostname, tld, mainDomainPart: main, fullDomain: root, parts: hostname.split('.') };
   } catch (e) {
     return null;
   }
@@ -78,26 +86,23 @@ export function analyzeDomain(url) {
 
   const { hostname, tld, mainDomainPart, fullDomain, parts } = domainInfo;
 
-  // 1. Typosquatting Detection
-  // Check against top legitimate domains
+  // 1. Typosquatting and Character Substitution Detection
   if (!LEGIT_DOMAINS.includes(fullDomain)) {
     for (const legit of LEGIT_DOMAINS) {
-      const legitParts = legit.split('.');
-      const legitName = legitParts[0];
+      const legitName = legit.split('.')[0];
       
-      const dist = levenshtein(mainDomainPart, legitName);
-      if (dist > 0 && dist <= 2) {
-        // Flag as typosquat
-        flags.push({ type: "TYPOSQUATTING", detail: `Similar to ${legit}`, weight: 60 });
-        riskContribution += 60;
-        break; // Only flag once for typosquatting
-      }
-      
-      // Character substitutions check (simple replacements to check equivalence)
+      // Check substitutions first (higher priority/weight)
       const cleanMain = mainDomainPart.replace(/1/g, 'l').replace(/0/g, 'o').replace(/rn/g, 'm');
       if (cleanMain === legitName && mainDomainPart !== legitName) {
         flags.push({ type: "CHARACTER_SUBSTITUTION", detail: `Substitutions found simulating ${legit}`, weight: 80 });
         riskContribution += 80;
+        break;
+      }
+
+      const dist = levenshtein(mainDomainPart, legitName);
+      if (dist <= 2) {
+        flags.push({ type: "TYPOSQUATTING", detail: `Similar to ${legit}`, weight: 60 });
+        riskContribution += 60;
         break;
       }
     }

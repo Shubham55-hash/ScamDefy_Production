@@ -20,6 +20,8 @@ from utils.threat_logger import log_threat
 
 def normalize_url(url: str) -> str:
     url = url.strip()
+    if not _re.match(r'^https?://', url, _re.IGNORECASE):
+        url = "http://" + url
     if url.endswith("/"):
         url = url[:-1]
     if "#" in url:
@@ -32,6 +34,8 @@ router = APIRouter()
 
 class ScanRequest(BaseModel):
     url: str
+    gsb_key: Optional[str] = None
+    gemini_key: Optional[str] = None
 
 
 class ExplainRequest(BaseModel):
@@ -67,16 +71,16 @@ def _score_to_risk_level(score: float) -> str:
 @router.post("/scan")
 async def scan_url_post(req: ScanRequest, bypass_cache: bool = False):
     normalized = normalize_url(req.url)
-    return await run_scan_pipeline(normalized, bypass_cache)
+    return await run_scan_pipeline(normalized, bypass_cache, gsb_key=req.gsb_key, gemini_key=req.gemini_key)
 
 
 @router.get("/scan")
-async def scan_url_get(url: str, bypass_cache: bool = False):
+async def scan_url_get(url: str, bypass_cache: bool = False, gsb_key: str = None, gemini_key: str = None):
     normalized = normalize_url(url)
-    return await run_scan_pipeline(normalized, bypass_cache)
+    return await run_scan_pipeline(normalized, bypass_cache, gsb_key, gemini_key)
 
 
-async def run_scan_pipeline(url: str, bypass_cache: bool = False):
+async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str = None, gemini_key: str = None):
     start_time = time.time()
 
     if not bypass_cache and url in scan_cache:
@@ -117,7 +121,7 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False):
     expanded  = expand_result.get("hop_count", 0) > 0
 
     results = await asyncio.gather(
-        check_gsb(final_url),
+        check_gsb(final_url, api_key=gsb_key),
         check_urlhaus(final_url),
         _async_analyze_domain(final_url),
         get_domain_age(final_url),
@@ -152,6 +156,7 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False):
             risk_result["verdict"],
             flags,
             extra_context=reasons_str,
+            api_key=gemini_key,
         )
     elif reasons:
         explanation = " ".join(reasons[:2])
@@ -231,9 +236,7 @@ async def _async_analyze_domain(url: str):
 
 @router.post("/explain")
 async def explain_url(req: ExplainRequest):
-    if req.api_key:
-        os.environ["GEMINI_API_KEY"] = str(req.api_key)
-    explanation = await generate_explanation(req.url, req.score, req.verdict, req.flags)
+    explanation = await generate_explanation(req.url, req.score, req.verdict, req.flags, api_key=req.api_key)
     return {"explanation": explanation}
 
 

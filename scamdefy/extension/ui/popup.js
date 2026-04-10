@@ -6,6 +6,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPayloadAnalyzer();
   setupVoiceUpload();
   setupSettings();
+  
+  // Fully reactive settings sync
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.protectionLevel || changes.popupThreshold || changes.bannerThreshold) {
+      updateProtocolUI();
+    }
+  });
 
   const refreshBtn = document.getElementById('btn-refresh-scan');
   if (refreshBtn) {
@@ -32,24 +39,39 @@ function setupNavigation() {
   });
 }
 
-function updateColors(score, verdict) {
+async function updateColors(score, verdict) {
   const gauge = document.getElementById('scoreGauge');
   const badge = document.getElementById('verdictBadge');
   if (!gauge || !badge) return;
 
+  const res = await new Promise(resolve => 
+    chrome.storage.local.get(['popupThreshold', 'bannerThreshold'], resolve)
+  );
+  const pThr = res.popupThreshold || 40;
+  const bThr = res.bannerThreshold || 30;
+
+  // Calculate effective verdict based on current protocol settings
+  let effectiveVerdict = verdict;
+  if (score !== null && score !== '--') {
+    const s = parseFloat(score);
+    if      (s >= pThr) effectiveVerdict = 'BLOCKED';
+    else if (s >= bThr) effectiveVerdict = 'CAUTION';
+    else                effectiveVerdict = 'SAFE';
+  }
+
   let color = '#94a3b8';
   let bg    = 'rgba(148, 163, 184, 0.15)';
 
-  if      (verdict === 'SAFE')    { color = 'var(--green, #22c55e)';  bg = 'rgba(34, 197, 94, 0.2)';   }
-  else if (verdict === 'CAUTION') { color = 'var(--amber, #f59e0b)';  bg = 'rgba(245, 158, 11, 0.2)';  }
-  else if (verdict === 'DANGER')  { color = 'var(--orange, #f97316)'; bg = 'rgba(249, 115, 22, 0.2)';  }
-  else if (verdict === 'BLOCKED') { color = 'var(--red, #ef4444)';    bg = 'rgba(239, 68, 68, 0.2)';   }
-  else if (verdict === 'ERROR')   { color = '#94a3b8';                bg = 'rgba(148, 163, 184, 0.15)';}
+  if      (effectiveVerdict === 'SAFE')    { color = 'var(--green, #22c55e)';  bg = 'rgba(34, 197, 94, 0.2)';   }
+  else if (effectiveVerdict === 'CAUTION') { color = 'var(--amber, #f59e0b)';  bg = 'rgba(245, 158, 11, 0.2)';  }
+  else if (effectiveVerdict === 'DANGER')  { color = 'var(--orange, #f97316)'; bg = 'rgba(249, 115, 22, 0.2)';  }
+  else if (effectiveVerdict === 'BLOCKED') { color = 'var(--red, #ef4444)';    bg = 'rgba(239, 68, 68, 0.2)';   }
+  else if (effectiveVerdict === 'ERROR')   { color = '#94a3b8';                bg = 'rgba(148, 163, 184, 0.15)';}
 
   gauge.style.borderColor = color;
   badge.style.color       = color;
   badge.style.background  = bg;
-  badge.textContent       = verdict || 'UNKNOWN';
+  badge.textContent       = effectiveVerdict || 'UNKNOWN';
 
   const sv = document.getElementById('scoreValue');
   if (sv && score !== null && score !== '--') sv.textContent = score;
@@ -69,15 +91,22 @@ function renderRiskPills(data) {
     }
   }
 
-  if (data.flags && (data.flags.includes('BRAND_IMPERSONATION') ||
-      data.flags.includes('TYPOSQUATTING') || data.flags.includes('CHARACTER_SUBSTITUTION'))) {
+  const hasFlag = (type) => {
+    if (!data.flags || !Array.isArray(data.flags)) return false;
+    return data.flags.some(f => {
+      const t = (typeof f === 'string') ? f : (f.type || f.name || '');
+      return t === type;
+    });
+  };
+
+  if (hasFlag('BRAND_IMPERSONATION') || hasFlag('TYPOSQUATTING') || hasFlag('CHARACTER_SUBSTITUTION')) {
     pills.push(`<span class="risk-pill pill-danger">⚠️ Impersonation</span>`);
   }
 
-  if (data.flags && data.flags.includes('GSB_THREAT')) {
+  if (hasFlag('GSB_THREAT')) {
     pills.push(`<span class="risk-pill pill-blocked">🚫 GSB Threat</span>`);
   }
-  if (data.flags && data.flags.includes('URLHAUS_MALWARE')) {
+  if (hasFlag('URLHAUS_MALWARE')) {
     pills.push(`<span class="risk-pill pill-blocked">🚫 URLHaus</span>`);
   }
 
@@ -114,7 +143,9 @@ async function loadCurrentPageStatus(force = false) {
         if (targetUrl) urlEl.textContent = targetUrl;
 
         if (rawData) {
-          const binaryString = atob(rawData);
+          // Fix: Ensure spaces are treated as '+' (reversing URL-encoding misinterpretation)
+          const sanitized = rawData.replace(/ /g, '+');
+          const binaryString = atob(sanitized);
           const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
           const jsonStr = new TextDecoder().decode(bytes);
           const data = JSON.parse(jsonStr);
@@ -213,69 +244,89 @@ async function loadSystemHealth() {
   const container = document.getElementById('moduleGrid');
   if (!container) return;
 
-  container.innerHTML = '<div class="module-loading">Checking modules...</div>';
+  container.innerHTML = '<div class="module-loading">◈ Running live health check...</div>';
 
-  chrome.runtime.sendMessage({ type: 'GET_STATUS', payload: {} }, (response) => {
+  // RUN_HEALTH_CHECK triggers a fresh live check instead of reading stale storage
+  chrome.runtime.sendMessage({ type: 'RUN_HEALTH_CHECK', payload: {} }, (response) => {
     if (chrome.runtime.lastError || !response || !response.success) {
-      if (sysBadge) { sysBadge.textContent = 'Backend Offline'; sysBadge.className = 'badge offline'; }
-      container.innerHTML = '<div class="module-offline">⚠ Unable to connect to service worker</div>';
+      // Fallback: read from storage if service worker is unreachable
+      chrome.runtime.sendMessage({ type: 'GET_STATUS', payload: {} }, (fallback) => {
+        if (chrome.runtime.lastError || !fallback || !fallback.success) {
+          if (sysBadge) { sysBadge.textContent = 'Backend Offline'; sysBadge.className = 'badge offline'; }
+          container.innerHTML = '<div class="module-offline">⚠ Unable to connect to service worker</div>';
+          return;
+        }
+        renderModuleStatuses(fallback.data || [], sysBadge, container);
+      });
       return;
     }
 
     const statuses = response.data || [];
     if (statuses.length === 0) {
-      container.innerHTML = '<div class="module-offline">No module data available</div>';
+      // Fresh check returned empty — fall back to cached storage
+      chrome.runtime.sendMessage({ type: 'GET_STATUS', payload: {} }, (fallback) => {
+        renderModuleStatuses((fallback && fallback.data) || [], sysBadge, container);
+      });
       return;
     }
 
-    const MODULE_META = {
-      "Backend Connection":   { icon: "🔗", category: "Infrastructure" },
-      "Google Safe Browsing": { icon: "🛡", category: "Threat Intelligence" },
-      "URLHaus":              { icon: "🔍", category: "Threat Intelligence" },
-      "Voice Detector":       { icon: "🎙", category: "AI Detection" },
-      "URL Expander":         { icon: "🔗", category: "Analysis" },
-      "Domain Analyzer":      { icon: "🌐", category: "Analysis" },
-      "Risk Scorer":          { icon: "📊", category: "Analysis" },
-      "AI Explainer":         { icon: "🤖", category: "AI Detection" },
-    };
-
-    const grouped = {};
-    statuses.forEach(m => {
-      const meta = MODULE_META[m.module] || { icon: "◈", category: "Other" };
-      if (!grouped[meta.category]) grouped[meta.category] = [];
-      grouped[meta.category].push({ ...m, ...meta });
-    });
-
-    let html = '';
-    for (const [category, modules] of Object.entries(grouped)) {
-      html += `<div class="module-category">
-        <div class="module-category-label">${category}</div>
-        <div class="module-cards">`;
-      modules.forEach(m => {
-        const isOk   = m.status === 'ok';
-        const isFail = m.status === 'fail';
-        const cls    = isOk ? 'ok' : isFail ? 'fail' : 'warn';
-        const statusText = isOk ? 'Online' : isFail ? 'Offline' : 'Degraded';
-        const statusIcon = isOk ? '✓' : isFail ? '✗' : '!';
-        html += `
-          <div class="module-card ${cls}">
-            <div class="module-card-icon">${m.icon}</div>
-            <div class="module-card-name">${m.module}</div>
-            <div class="module-card-status ${cls}"><span>${statusIcon}</span> ${statusText}</div>
-            ${m.reason && !isOk ? `<div class="module-card-reason">${m.reason}</div>` : ''}
-          </div>`;
-      });
-      html += `</div></div>`;
-    }
-
-    container.innerHTML = html;
-
-    const anyFail = statuses.some(r => r.status === 'fail');
-    if (sysBadge) {
-      sysBadge.textContent = anyFail ? 'Issues Detected' : 'Protected';
-      sysBadge.className   = anyFail ? 'badge issues' : 'badge protected';
-    }
+    renderModuleStatuses(statuses, sysBadge, container);
   });
+}
+
+function renderModuleStatuses(statuses, sysBadge, container) {
+  if (!statuses || statuses.length === 0) {
+    container.innerHTML = '<div class="module-offline">No module data yet — ensure the backend is running then reload the extension.</div>';
+    return;
+  }
+
+  const MODULE_META = {
+    "Backend Connection":   { icon: "🔗", category: "Infrastructure" },
+    "Google Safe Browsing": { icon: "🛡", category: "Threat Intelligence" },
+    "URLHaus":              { icon: "🔍", category: "Threat Intelligence" },
+    "Voice Detector":       { icon: "🎙", category: "AI Detection" },
+    "URL Expander":         { icon: "🔗", category: "Analysis" },
+    "Domain Analyzer":      { icon: "🌐", category: "Analysis" },
+    "Risk Scorer":          { icon: "📊", category: "Analysis" },
+    "AI Explainer":         { icon: "🤖", category: "AI Detection" },
+  };
+
+  const grouped = {};
+  statuses.forEach(m => {
+    const meta = MODULE_META[m.module] || { icon: "◈", category: "Other" };
+    if (!grouped[meta.category]) grouped[meta.category] = [];
+    grouped[meta.category].push({ ...m, ...meta });
+  });
+
+  let html = '';
+  for (const [category, modules] of Object.entries(grouped)) {
+    html += `<div class="module-category">
+      <div class="module-category-label">${category}</div>
+      <div class="module-cards">`;
+    modules.forEach(m => {
+      const isOk   = m.status === 'ok';
+      const isFail = m.status === 'fail';
+      const cls    = isOk ? 'ok' : isFail ? 'fail' : 'warn';
+      const statusText = isOk ? 'Online' : isFail ? 'Offline' : 'Degraded';
+      const statusIcon = isOk ? '✓' : isFail ? '✗' : '!';
+      html += `
+        <div class="module-card ${cls}">
+          <div class="module-card-icon">${m.icon}</div>
+          <div class="module-card-name">${m.module}</div>
+          <div class="module-card-status ${cls}"><span>${statusIcon}</span> ${statusText}</div>
+          ${m.reason && !isOk ? `<div class="module-card-reason">${m.reason}</div>` : ''}
+        </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  container.innerHTML = html;
+
+  const anyFail = statuses.some(r => r.status === 'fail');
+  if (sysBadge) {
+    sysBadge.textContent = anyFail ? 'Issues Detected' : 'Protected';
+    sysBadge.className   = anyFail ? 'badge issues' : 'badge protected';
+  }
 }
 
 function setupManualScan() {
@@ -335,7 +386,7 @@ function setupPayloadAnalyzer() {
 
     // Read backend URL from storage with fallback
     chrome.storage.local.get(['backendUrl'], (s) => {
-      const backendUrl = (s.backendUrl || 'http://127.0.0.1:8000').replace(/\/$/, '');
+      const backendUrl = (s.backendUrl || 'http://localhost:8000').replace(/\/$/, '');
       fetch(`${backendUrl}/api/analyze-message`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -439,16 +490,49 @@ function setupVoiceUpload() {
   });
 }
 
+async function updateProtocolUI() {
+  chrome.storage.local.get(['protectionLevel', 'popupThreshold', 'bannerThreshold'], res => {
+    const level = res.protectionLevel || 'balanced';
+    const badge = document.getElementById('protocolBadge');
+    const desc  = document.getElementById('protocolDesc');
+    const pThr  = res.popupThreshold  || (level === 'conservative' ? 80 : level === 'aggressive' ? 20 : 40);
+    const bThr  = res.bannerThreshold || (level === 'conservative' ? 50 : level === 'aggressive' ? 1  : 30);
+
+    if (badge) {
+      badge.textContent = level.toUpperCase();
+      badge.className = `protocol-badge ${level}`;
+    }
+    if (desc) {
+      desc.textContent = `${level.charAt(0).toUpperCase() + level.slice(1)} protection — Block at ≥ ${pThr}, warn at ≥ ${bThr}.`;
+    }
+
+    const lblBanner = document.getElementById('lbl-banner-threshold');
+    const lblPopup  = document.getElementById('lbl-popup-threshold');
+    if (lblBanner) lblBanner.textContent = bThr;
+    if (lblPopup)  lblPopup.textContent  = pThr;
+  });
+}
+
 function setupSettings() {
-  chrome.storage.local.get(['backendUrl', 'autoScan', 'showBanner', 'blockDangerous'], res => {
+  chrome.storage.local.get([
+    'backendUrl', 
+    'autoScan', 
+    'showBanner', 
+    'blockDangerous',
+    'protectionLevel',
+    'popupThreshold',
+    'bannerThreshold'
+  ], res => {
     if (res.backendUrl) document.getElementById('backendUrl').value = res.backendUrl;
     document.getElementById('autoScanToggle').checked   = res.autoScan !== false;
     document.getElementById('bannerToggle').checked     = res.showBanner !== false;
     document.getElementById('blockToggle').checked      = res.blockDangerous !== false;
+
+    updateProtocolUI();
   });
 
   document.getElementById('btn-test-connection')?.addEventListener('click', () => {
-    const url      = (document.getElementById('backendUrl')?.value?.trim()) || 'http://127.0.0.1:8000';
+    const url      = (document.getElementById('backendUrl')?.value?.trim()) || 'http://localhost:8000';
     const statusEl = document.getElementById('connectionStatus');
     statusEl.innerHTML = '<span class="scanning-text">Testing...</span>';
     fetch(`${url}/api/health`)
@@ -458,7 +542,7 @@ function setupSettings() {
   });
 
   document.getElementById('btn-save-settings')?.addEventListener('click', () => {
-    const backendUrl     = document.getElementById('backendUrl')?.value?.trim() || 'http://127.0.0.1:8000';
+    const backendUrl     = document.getElementById('backendUrl')?.value?.trim() || 'http://localhost:8000';
     const autoScan       = document.getElementById('autoScanToggle')?.checked;
     const showBanner     = document.getElementById('bannerToggle')?.checked;
     const blockDangerous = document.getElementById('blockToggle')?.checked;
@@ -474,21 +558,25 @@ function setupSettings() {
   document.getElementById('btn-reset-protection')?.addEventListener('click', () => {
     if (!confirm('Clear all whitelisted sites? This will re-enable blocking for sites you previously allowed.')) return;
     
-    chrome.storage.local.set({ whitelist: [] }, () => {
-        const btn = document.getElementById('btn-reset-protection');
-        const orig = btn.textContent;
-        btn.textContent = '✓ Whitelist Cleared!';
-        btn.style.borderColor = '#22c55e55';
-        btn.style.color = '#22c55e';
-        
-        setTimeout(() => { 
-            btn.textContent = orig; 
-            btn.style.borderColor = '#ef444455';
-            btn.style.color = '#ef4444';
-        }, 2000);
-        
-        // Also refresh status to reflect change
-        loadCurrentPageStatus();
+    chrome.storage.local.get(null, (allData) => {
+        const keysToRemove = Object.keys(allData).filter(k => k.startsWith('scan_'));
+        chrome.storage.local.set({ whitelist: [] }, () => {
+          chrome.storage.local.remove(keysToRemove, () => {
+            const btn = document.getElementById('btn-reset-protection');
+            const orig = btn.textContent;
+            btn.textContent = '✓ System Reset!';
+            btn.style.borderColor = '#22c55e55';
+            btn.style.color = '#22c55e';
+            
+            setTimeout(() => { 
+                btn.textContent = orig; 
+                btn.style.borderColor = '#ef444455';
+                btn.style.color = '#ef4444';
+            }, 2000);
+            
+            loadCurrentPageStatus();
+          });
+        });
     });
   });
 }

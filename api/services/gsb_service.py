@@ -3,8 +3,10 @@ import httpx
 import logging
 from typing import Dict, Any
 
-async def check_url(url: str) -> Dict[str, Any]:
-    api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
+async def check_url(url: str, api_key: str = None) -> Dict[str, Any]:
+    if not api_key:
+        api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
+        
     if not api_key:
         logging.warning("[ScamDefy] GSB API key missing. Operating in degraded mode.")
         return {
@@ -45,7 +47,8 @@ async def check_url(url: str) -> Dict[str, Any]:
                 logging.warning(f"[ScamDefy] GSB 400 Bad Request for {url}.")
                 return {
                     "url": url, "is_threat": False, "threat_type": None, 
-                    "threat_confidence": 0.0, "source": "google_safe_browsing"
+                    "threat_confidence": 0.0, "source": "google_safe_browsing",
+                    "warning": f"GSB API 400 Bad Request — check payload/key"
                 }
 
             response.raise_for_status()
@@ -80,14 +83,16 @@ async def check_url(url: str) -> Dict[str, Any]:
         }
 
 
-async def health_check() -> Dict[str, str]:
+async def health_check(api_key: str = None) -> Dict[str, str]:
     # Call GSB with known safe URL
     try:
-        api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
+        if not api_key:
+            api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
+            
         if not api_key:
             return {"status": "fail", "reason": "Missing GSB API key. Check degraded."}
             
-        result = await check_url("https://google.com")
+        result = await check_url("https://google.com", api_key=api_key)
         if result.get("warning"):
             return {"status": "fail", "reason": f"GSB Error: {result['warning']}"}
             
@@ -98,3 +103,4 @@ async def health_check() -> Dict[str, str]:
             
     except Exception as exc:
         return {"status": "fail", "reason": str(exc)}
+

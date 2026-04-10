@@ -603,3 +603,39 @@ input:checked + .toggle-slider::before { transform: translateX(18px); background
 .about-row:last-child { border-bottom: none; }
 .about-val { color: var(--text); }
 .cyan-text { color: var(--cyan); text-shadow: 0 0 6px rgba(0,242,255,0.4); }
+
+/* Defense Protocol Styles */
+.protocol-status {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+.protocol-badge {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: monospace;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+/* Protocol Color States */
+.protocol-badge.conservative {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--amber);
+  border-color: rgba(245, 158, 11, 0.3);
+  text-shadow: 0 0 8px var(--amber);
+}
+.protocol-badge.balanced {
+  background: rgba(249, 115, 22, 0.1);
+  color: var(--orange);
+  border-color: rgba(249, 115, 22, 0.3);
+  text-shadow: 0 0 8px var(--orange);
+}
+.protocol-badge.aggressive {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--red);
+  border-color: rgba(239, 68, 68, 0.3);
+  text-shadow: 0 0 8px var(--red);
+}

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import Optional
 import numpy as np
 import io
@@ -12,13 +12,16 @@ from utils.threat_logger import log_threat
 router = APIRouter()
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ACCEPTED_FORMATS = [".wav", ".mp3", ".ogg", ".m4a", ".webm"]
+ACCEPTED_FORMATS = {'.wav', '.mp3', '.ogg', '.m4a', '.webm', '.aac', '.flac', '.opus'}
 
 
 @router.post("/voice/analyze")
-async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = None):
+async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = Form(None)):
+    # Log incoming request for Antigravity tracing
+    from services.voice_service import logger as vlogger
+    vlogger.info(f"[Voice] Processing upload: {audio.filename} (type: {audio.content_type})")
+
     # Return 503 while the pretrained model is still being downloaded.
-    # The client should retry after a short delay.
     if voice_service._model_loading and not voice_service.pretrained_available:
         raise HTTPException(
             status_code=503,
@@ -28,9 +31,16 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
     if not audio.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
-    ext = audio.filename.lower()
-    if not any(ext.endswith(fmt) for fmt in ACCEPTED_FORMATS):
-        raise HTTPException(status_code=400, detail="Unsupported audio format")
+    # Robust extension check
+    from pathlib import Path
+    ext = Path(audio.filename).suffix.lower()
+    
+    if ext not in ACCEPTED_FORMATS and not any(audio.filename.lower().endswith(fmt) for fmt in ACCEPTED_FORMATS):
+        vlogger.warning(f"[Voice] Rejected unsupported format: {audio.filename} (ext: {ext})")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported audio format. Accepted: {', '.join(sorted(ACCEPTED_FORMATS))}"
+        )
 
     file_bytes = await audio.read()
     if len(file_bytes) > MAX_FILE_SIZE:

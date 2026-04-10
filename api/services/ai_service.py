@@ -1,6 +1,7 @@
 import os
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 
 async def generate_explanation(
@@ -9,6 +10,7 @@ async def generate_explanation(
     verdict: str,
     flags_list: list,
     extra_context: str = "",
+    api_key: str = None,
 ) -> str:
     if score <= 30:
         return "This URL appears safe based on all checks."
@@ -20,20 +22,20 @@ async def generate_explanation(
     else:
         fallback_parts.append(f"Flagged for: {flags_str}.")
     
-    # Try to extract domain age from extra_context or flags if not explicitly passed
-    # (Actually better to just trust the caller provided it in extra_context)
-    
     fallback_parts.append("We recommend NOT visiting this URL.")
     fallback = " ".join(fallback_parts)
 
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key or str(api_key).lower() in ("null", "undefined", "none", ""):
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
     if not api_key:
         logging.warning("[ScamDefy] GEMINI_API_KEY not found in environment.")
         return fallback
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = genai.Client(api_key=api_key)
+        # Use latest Gemini 2.5 Flash Lite for high speed and reliability
+        model_id = "gemini-2.5-flash-lite"
 
         system_instruction = (
             "You are a cybersecurity expert. Explain in 2-3 sentences (max 70 words) "
@@ -54,9 +56,11 @@ async def generate_explanation(
             "Explain why this is suspicious."
         )
 
-        response = await model.generate_content_async(
-            f"{system_instruction}\n\n{user_prompt}",
-            generation_config=genai.types.GenerationConfig(
+        # New Client-based async syntax
+        response = await client.aio.models.generate_content(
+            model=model_id,
+            contents=f"{system_instruction}\n\n{user_prompt}",
+            config=types.GenerateContentConfig(
                 max_output_tokens=120,
                 temperature=0.3,
             ),

@@ -1,5 +1,4 @@
-import React from 'react';
-import { AppError } from '../../types';
+import type { AppError } from '../../types';
 
 interface Props {
   error: AppError | { message: string; retryable?: boolean };

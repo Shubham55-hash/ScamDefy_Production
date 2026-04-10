@@ -9,10 +9,10 @@ from routes.voice import health_check as hc_voice
 router = APIRouter()
 
 @router.get("/health")
-async def health_check_all():
+async def health_check_all(gsb_key: str = None):
     results = await asyncio.gather(
         hc_url(),
-        hc_gsb(),
+        hc_gsb(api_key=gsb_key),
         hc_uh(),
         hc_voice()
     )

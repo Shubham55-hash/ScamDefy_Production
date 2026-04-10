@@ -20,27 +20,54 @@ SUSPICIOUS_TLDS = [
 ]
 
 def levenshtein(a: str, b: str) -> int:
+    """
+    Damerau-Levenshtein distance (Optimal String Alignment distance).
+    Handles insertions, deletions, substitutions, and transpositions.
+    """
     if not a: return len(b)
     if not b: return len(a)
     
-    matrix = [[0] * (len(a) + 1) for _ in range(len(b) + 1)]
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
     
-    for i in range(len(b) + 1):
-        matrix[i][0] = i
-    for j in range(len(a) + 1):
-        matrix[0][j] = j
-        
-    for i in range(1, len(b) + 1):
-        for j in range(1, len(a) + 1):
-            if b[i-1] == a[j-1]:
-                matrix[i][j] = matrix[i-1][j-1]
-            else:
-                matrix[i][j] = min(
-                    matrix[i-1][j-1] + 1,
-                    matrix[i][j-1] + 1,
-                    matrix[i-1][j] + 1
-                )
-    return matrix[len(b)][len(a)]
+    for i in range(len(a) + 1): d[i][0] = i
+    for j in range(len(b) + 1): d[0][j] = j
+    
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i-1] == b[j-1] else 1
+            d[i][j] = min(
+                d[i-1][j] + 1,      # deletion
+                d[i][j-1] + 1,      # insertion
+                d[i-1][j-1] + cost   # substitution
+            )
+            if i > 1 and j > 1 and a[i-1] == b[j-2] and a[i-2] == b[j-1]:
+                d[i][j] = min(d[i][j], d[i-2][j-2] + 1) # transposition
+                
+    return d[len(a)][len(b)]
+
+def _get_main_domain_and_tld(hostname: str):
+    """
+    TLD-aware extraction of the main domain part and the full domain (root).
+    Handles multi-part TLDs like .co.uk, .gov.in, etc.
+    """
+    parts = hostname.lower().split('.')
+    if len(parts) < 2:
+        return hostname, "", hostname
+
+    # Heuristic for common multi-part TLDs
+    # In a full system we'd use tldextract or public suffix list
+    second_to_last = parts[-2]
+    if second_to_last in ("com", "co", "gov", "org", "edu", "net", "ac", "sch", "res"):
+        if len(parts) >= 3:
+            tld = "." + ".".join(parts[-2:])
+            main = parts[-3]
+            root = ".".join(parts[-3:])
+            return main, tld, root
+    
+    tld = "." + parts[-1]
+    main = parts[-2]
+    root = ".".join(parts[-2:])
+    return main, tld, root
 
 def analyze(url: str) -> Dict[str, Any]:
     flags = []
@@ -48,31 +75,31 @@ def analyze(url: str) -> Dict[str, Any]:
     
     try:
         parsed_url = urllib.parse.urlparse(url)
-        hostname = parsed_url.netloc.lower()
+        # Handle cases where url might not have a scheme
+        hostname = (parsed_url.netloc or parsed_url.path).lower().replace("www.", "")
         if not hostname:
             return {"domain": url, "flags": [], "risk_contribution": 0, "is_suspicious": False}
             
+        main_domain_part, tld, full_domain = _get_main_domain_and_tld(hostname)
         parts = hostname.split('.')
-        tld = "." + parts[-1] if len(parts) > 0 else ""
-        main_domain_part = parts[-2] if len(parts) > 1 else parts[0]
-        full_domain = f"{main_domain_part}{tld}" if len(parts) > 1 else hostname
         
-        # 1. Typosquatting
+        # 1. Typosquatting and Character Substitution
         if full_domain not in LEGIT_DOMAINS:
             for legit in LEGIT_DOMAINS:
                 legit_name = legit.split('.')[0]
-                dist = levenshtein(main_domain_part, legit_name)
                 
-                if 0 < dist <= 2:
-                    flags.append({"type": "TYPOSQUATTING", "detail": f"Similar to {legit}", "weight": 60})
-                    risk_contribution += 60
-                    break
-                    
-                # Character substitution
+                # Check character substitution first as it usually has higher weight/severity
                 clean_main = main_domain_part.replace('1', 'l').replace('0', 'o').replace('rn', 'm')
                 if clean_main == legit_name and main_domain_part != legit_name:
                     flags.append({"type": "CHARACTER_SUBSTITUTION", "detail": f"Substitutions found simulating {legit}", "weight": 80})
                     risk_contribution += 80
+                    break
+                
+                dist = levenshtein(main_domain_part, legit_name)
+                # Catch exact brand name on different TLD (dist == 0) or small typos (dist 1-2)
+                if dist <= 2:
+                    flags.append({"type": "TYPOSQUATTING", "detail": f"Similar to {legit}", "weight": 60})
+                    risk_contribution += 60
                     break
 
         # 2. Suspicious TLD
@@ -81,8 +108,8 @@ def analyze(url: str) -> Dict[str, Any]:
             risk_contribution += 20
             
         # 3. Subdomain Depth
-        subdomain_count = len(parts) - 2
-        if subdomain_count > 3:
+        subdomain_count = len(parts) - (2 if tld.count('.') == 1 else 3)
+        if subdomain_count > 2:
             flags.append({"type": "DEEP_SUBDOMAIN", "detail": f"Has {subdomain_count} subdomains", "weight": 30})
             risk_contribution += 30
             

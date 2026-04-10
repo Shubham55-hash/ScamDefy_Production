@@ -33,13 +33,13 @@ export function Settings() {
   const [protectionLevel, setProtectionLevel] = useState(settings.protectionLevel);
   const [clearConfirm, setClearConfirm] = useState(false);
 
-  const handleSaveProtection = () => {
+  const handleSaveAll = () => {
     save({ protectionLevel });
     // Dispatch custom event for extension content script to detect
     window.dispatchEvent(new CustomEvent('scamdefy-settings-updated', { 
       detail: { protectionLevel } 
     }));
-    addToast('success', `Defense protocol set to ${protectionLevel.toUpperCase()}`);
+    addToast('success', `Security protocol updated.`);
   };
 
   const handleClearHistory = async () => {
@@ -105,7 +105,7 @@ export function Settings() {
           })}
         </div>
         <button
-          onClick={handleSaveProtection}
+          onClick={handleSaveAll}
           className="text-[11px] font-mono uppercase tracking-[0.2em] px-6 py-2.5 rounded-lg transition-all"
           style={{
             background: 'rgba(0,242,255,0.1)',
@@ -114,9 +114,10 @@ export function Settings() {
             boxShadow: '0 0 12px rgba(0,242,255,0.1)',
           }}
         >
-          SAVE PROTOCOL
+          SAVE PROTOCOL & SETTINGS
         </button>
       </div>
+
 
       {/* ── System Manifest ── */}
       <div className="glass-panel rounded-xl p-5 mb-8">

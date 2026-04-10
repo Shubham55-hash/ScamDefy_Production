@@ -11,7 +11,10 @@ export async function runAllHealthChecks() {
   // 1. Backend Connectivity Check
   let backendRes = { module: "Backend Connection", status: "fail", reason: "Unknown" };
   try {
-    const res = await fetch(`${ENV.BACKEND_URL}${ENV.HEALTH_ENDPOINT}`);
+    const settings = await new Promise(r => chrome.storage.local.get(['gsbKey'], r));
+    const query = settings.gsbKey ? `?gsb_key=${encodeURIComponent(settings.gsbKey)}` : '';
+    const endpoint = `${ENV.BACKEND_URL}${ENV.HEALTH_ENDPOINT}${query}`;
+    const res = await fetch(endpoint);
     if (res.ok) {
       const data = await res.json();
       // Extract GSB, PhishTank, Voice from backend health

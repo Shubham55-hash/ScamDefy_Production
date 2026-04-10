@@ -117,7 +117,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (rawData) {
     try {
       // Modern UTF-8 safe base64 decoding
-      const binaryString = atob(rawData);
+      // Defensive fix: handle cases where '+' might have been decoded as space
+      const sanitized = rawData.replace(/ /g, '+');
+      const binaryString = atob(sanitized);
       const bytes        = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
       const jsonStr      = new TextDecoder().decode(bytes);
       data = JSON.parse(jsonStr);

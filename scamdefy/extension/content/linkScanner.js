@@ -25,11 +25,12 @@ async function checkCurrentPage() {
       const result = response.data;
       if (result.should_block || result.score >= 80) {
         // We are already on the page, so we need to redirect if it's dangerous
-        // The background script should usually catch this, but this is a secondary safety.
         console.warn("[ScamDefy] Malicious page detected on-load:", url);
-        // Only redirect if we haven't already
         if (!window.location.href.includes('warning.html')) {
-          window.location.href = chrome.runtime.getURL(`ui/warning.html?url=${encodeURIComponent(url)}`);
+          const uint8      = new TextEncoder().encode(JSON.stringify(result));
+          const binString  = Array.from(uint8, b => String.fromCharCode(b)).join('');
+          const encoded    = btoa(binString);
+          window.location.href = chrome.runtime.getURL(`ui/warning.html?url=${encodeURIComponent(url)}&data=${encoded}`);
         }
       }
     }

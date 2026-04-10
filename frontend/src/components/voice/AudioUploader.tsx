@@ -64,7 +64,7 @@ export function AudioUploader({ onFile, loading, progress, selectedFile }: Props
         <input
           ref={inputRef}
           type="file"
-          accept=".wav,.mp3,.ogg,.m4a"
+          accept="audio/*,audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/webm,.wav,.mp3,.ogg,.m4a,.webm"
           className="hidden"
           onChange={handleChange}
         />
@@ -100,13 +100,13 @@ export function AudioUploader({ onFile, loading, progress, selectedFile }: Props
       onDragOver={e => e.preventDefault()}
       onClick={() => inputRef.current?.click()}
     >
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".wav,.mp3,.ogg,.m4a"
-        className="hidden"
-        onChange={handleChange}
-      />
+        <input
+          ref={inputRef}
+          type="file"
+          accept="audio/*,audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/webm,.wav,.mp3,.ogg,.m4a,.webm"
+          className="hidden"
+          onChange={handleChange}
+        />
       {/* Hexagon icon */}
       <div className="w-20 h-20 border border-electricCyan hexagon-clip flex items-center justify-center animate-pulse-glow">
         <svg className="w-8 h-8 text-electricCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
