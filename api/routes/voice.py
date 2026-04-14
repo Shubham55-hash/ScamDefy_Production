@@ -47,37 +47,52 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
     result = await analyze_audio(file_bytes, audio.filename, api_key)
-    if result["verdict"] == "ERROR":
-        raise HTTPException(status_code=500, detail=result.get("warning", "Analysis failed"))
-
-    verdict = result.get("verdict", "UNKNOWN")
-    confidence = float(result.get("confidence", 0.0))
-    reason = result.get("reason") or result.get("fingerprint_reason") or "Analysis inconclusive"
     
+    # Check for errors in result (though analyze_audio usually raises or returns verdict)
+    if result.get("verdict") == "ERROR" or result.get("final_label") == "ERROR":
+        raise HTTPException(status_code=500, detail=result.get("warning") or "Analysis failed")
+
+    final_label = result.get("final_label", "UNKNOWN")
+    confidence  = float(result.get("confidence", 0.0))
+    explanation = result.get("explanation") or "Analysis inconclusive"
+    
+    request_id = str(uuid.uuid4())
+
     # Log to Surveillance if synthetic
-    if verdict == "SYNTHETIC":
+    if final_label == "AI":
         log_threat(
-            id=str(uuid.uuid4()),
+            id=request_id,
             url=f"Voice Payload: {audio.filename}",
             risk_level="CRITICAL",
             score=float(round(confidence * 100, 1)),
             scam_type="AI Voice Clone",
-            explanation=reason,
+            explanation=explanation,
             signals=["AI_SYNTHETIC_ARTIFACTS", "NEURAL_PROSODY_MATCH"]
         )
 
     return {
-        "id":             str(uuid.uuid4()),
-        "verdict":        verdict,
-        "confidence":     confidence,
-        "confidence_pct": round(confidence * 100, 1),
-        "model_loaded":   voice_service.pretrained_available,
-        "warning":        result.get("warning"),
-        "timestamp":      datetime.now(timezone.utc).isoformat(),
-        # pass-through fields used by VoiceResult.tsx
+        "id":               request_id,
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+        
+        # --- AntiGravity Strict Spec (Nested) ---
+        "antigravity": {
+            "audio_id":       request_id,
+            "final_label":    final_label,
+            "final_ai_score": result.get("final_ai_score", 0.0),
+            "confidence":     confidence,
+            "explanation":    explanation
+        },
+        
+        # --- Production Metadata ---
+        "verdict":          final_label, 
+        "confidence":       confidence,   # RESTORED for backward compat
+        "confidence_pct":   round(confidence * 100, 1),
+        "model_loaded":     voice_service.pretrained_available,
+        "warning":          result.get("warning"),
         "low_confidence":   result.get("low_confidence", False),
-        "reason":           reason,
         "transcript":       result.get("transcript", ""),
+        "audio_info":       result.get("audio_info", {}),
+        "model_results":    result.get("model_results", {})
     }
 
 

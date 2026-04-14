@@ -77,7 +77,7 @@ class TestVoiceAnalysis:
         )
         if r.status_code == 200:
             assert "verdict" in r.json()
-            assert r.json()["verdict"] in ("REAL", "SYNTHETIC", "UNCERTAIN", "UNKNOWN")
+            assert r.json()["verdict"] in ("REAL", "SYNTHETIC", "UNCERTAIN", "UNKNOWN", "AI", "HUMAN")
 
     def test_confidence_is_float(self, client, valid_wav_bytes):
         f = io.BytesIO(valid_wav_bytes)

@@ -39,11 +39,9 @@ STD_MODEL_PATH = os.path.join(MODELS_DIR, "scamdefy_voice.pkl")
 # ─────────────────────────────────────────────────────────────
 THRESHOLDS = {
     # Low pitch_cv → AI (pitch coefficient of variation, human: 0.05-0.25)
-    # Tightened: Neural vocoders have extremely uniform pitch
-    "pitch_cv":              {"ai_low": 0.025, "human_high": 0.10,  "weight": 2.5},
+    "pitch_cv":              {"ai_low": 0.015, "human_high": 0.12,  "weight": 2.5},
     # Low pitch_jitter → AI (human RAP jitter: 0.5%-3%)
-    # Tightened: Modern TTS has near-zero jitter
-    "pitch_jitter":          {"ai_low": 0.003, "human_high": 0.020, "weight": 3.0},
+    "pitch_jitter":          {"ai_low": 0.002, "human_high": 0.020, "weight": 3.0},
     # Low rms_cv → AI (amplitude variation, human: 0.4-1.2)
     "rms_cv":                {"ai_low": 0.25,  "human_high": 0.65,  "weight": 2.0},
     # Low flatness_std → AI (spectral flatness too uniform in AI voices)
@@ -51,11 +49,11 @@ THRESHOLDS = {
     # Low delta_smoothness → AI (MFCC deltas very smooth in TTS)
     "delta_smoothness":      {"ai_low": 1.5,   "human_high": 8.0,   "weight": 2.5},
     # Very high voiced_frac → AI (no natural breathing interruptions)
-    "voiced_frac":           {"ai_high": 0.94, "human_low": 0.35,   "weight": 1.5},
+    "voiced_frac":           {"ai_high": 0.98, "human_low": 0.35,   "weight": 1.5},
     # Low pause_cv → AI (machine-regular pauses)
-    "pause_cv":              {"ai_low": 0.15,  "human_high": 0.60,  "weight": 2.0},
+    "pause_cv":              {"ai_low": 0.10,  "human_high": 0.60,  "weight": 2.0},
     # Low pitch_entropy → AI (robotic periodicity)
-    "pitch_entropy":         {"ai_low": 0.60,  "human_high": 1.50,  "weight": 2.5},
+    "pitch_entropy":         {"ai_low": 0.25,  "human_high": 1.50,  "weight": 2.5},
     # High hnr → AI (unnaturally clean speech)
     "hnr":                   {"ai_high": 150.0, "human_low": 60.0,  "weight": 1.5},
     # Low rolloff_std → AI (extremely consistent frequency balance)
@@ -167,9 +165,14 @@ def extract_features(y: np.ndarray, sr: int) -> np.ndarray:
     # ── 16: Voiced fraction ───────────────────────────────────
     try:
         # Pre-filter silence to ensure we don't find "pitch" in background hiss
-        # (which triggers 100% voiced false positives)
         rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
-        active_mask = rms > (np.mean(rms) * 0.1) # Only frames with some energy
+        
+        # DYNAMIC BASELINE: Establish noise floor from the first 250ms (usually silence/breath)
+        noise_floor_window = rms[:int(0.25 * sr / 512)]
+        noise_floor = np.median(noise_floor_window) if len(noise_floor_window) > 0 else 0.01
+        
+        # Adaptive threshold: Only frames significantly above the noise floor are "active"
+        active_mask = rms > max(noise_floor * 2.0, 0.005)
         
         f0 = librosa.yin(y, fmin=60, fmax=400, sr=sr, threshold=0.15)
         # Apply mask to calculation
@@ -181,7 +184,7 @@ def extract_features(y: np.ndarray, sr: int) -> np.ndarray:
         voiced_frac = float(voiced_frames / max(total_active, 1))
         features.append(voiced_frac)                           # 1 feature
     except Exception:
-        features.append(0.5)
+        features.append(0.85)
 
     # ── 17-18: Pause regularity ───────────────────────────────
     try:
@@ -223,21 +226,21 @@ def extract_features(y: np.ndarray, sr: int) -> np.ndarray:
         if len(voiced_f0) > 20:
             # Use relative differences to catch micro-variations
             diffs = np.diff(voiced_f0) / (voiced_f0[:-1] + 1e-6)
-            # More bins (20) for finer distribution check
-            counts, _ = np.histogram(diffs, bins=20, range=(-0.05, 0.05))
+            # Widen range to catch human variation and prevent zero-sum errors
+            counts, _ = np.histogram(diffs, bins=32, range=(-0.15, 0.15))
             
-            # SHARED FIX: Convert counts to probabilities (sum=1)
-            # density=True in numpy provides a PDF (integral=1), which can produce high density
-            # values > 1 for small bins, leading to negative Shannon entropy.
-            probs = counts.astype(float) / (np.sum(counts) + 1e-6)
-            probs = probs[probs > 0]
+            # Use a tiny floor (eps) rather than stripping zeros to handle 
+            # low-information segments without hitting math overflows
+            probs = (counts.astype(float) + 1e-9) / (np.sum(counts) + 1e-7)
             entropy = -np.sum(probs * np.log2(probs))
             
-            features.append(float(entropy))
+            # Normalize by max possible entropy for 32 bins (log2(32) = 5)
+            # This ensures value is strictly [0, 1] in our feature array
+            features.append(float(entropy / 5.0))
         else:
-            features.append(1.0)  # Neutral floor (max entropy approx)
+            features.append(0.85)  # Default neutral-high (human-like variability)
     except Exception:
-        features.append(1.0)
+        features.append(0.85)
 
     # ── 28-32: Spectral Moments ───────────────────────────────
     try:
@@ -283,11 +286,13 @@ def rule_based_score(feats: np.ndarray, y: np.ndarray = None, sr: int = None) ->
     ai_weight = 0.0
     reasons = []
 
+    ai_markers = 0
     def note(name: str, val: float, is_ai: bool, w: float, reason: str):
-        nonlocal ai_weight, total_weight
+        nonlocal ai_weight, total_weight, ai_markers
         total_weight += w
         if is_ai:
             ai_weight += w
+            ai_markers += 1
             reasons.append(reason)
             logger.info(f"[Detector] Rule match: {name}={val:.4f} TRIGGERED ({reason})")
         else:
@@ -313,23 +318,41 @@ def rule_based_score(feats: np.ndarray, y: np.ndarray = None, sr: int = None) ->
          pitch_jitter < THRESHOLDS["pitch_jitter"]["ai_low"], 2.5,
          "Vocal jitter (RAP) below human physiological minimum")
 
-    # NEW: Spectral Tilt Proxy (High freq energy / Low freq energy)
-    # AI vocoders often have a 'sharper' tail. 
-    # Adjusted bands: Low (500-2kHz), High (4kHz-6kHz) to avoid digital "air" noise.
-    tilt, is_ai_tilt = 0.0, False
+    # DYNAMIC SPECTRAL ANALYSIS (Windowed Variance)
+    # AI vocoders have inhumanly stable spectral tilt over time.
+    # Humans have high variance in their high-frequency tail.
+    tilt_avg, tilt_var, is_ai_tilt = 0.0, 1.0, False
     if y is not None and sr is not None:
         try:
-            S = np.abs(librosa.stft(y))
-            freqs = librosa.fft_frequencies(sr=sr)
-            low_band = np.sum(S[(freqs > 500) & (freqs < 2000)], axis=0)
-            high_band = np.sum(S[(freqs > 4000) & (freqs < 6000)], axis=0)
-            tilt = float(np.mean(high_band / (low_band + 1e-6)))
-            # Re-calibrated for high-fidelity mics: profiles are < 0.25 (standard) to 0.50 (clear/airy)
-            is_ai_tilt = tilt > 0.50  # Increased from 0.25 to prevent false positives on clear mics
+            # Use a slightly larger hop for temporal stability check
+            S = np.abs(librosa.stft(y, n_fft=2048, hop_length=1024))
+            freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
+            
+            # Low (500Hz-2.5kHz) vs High (4.5kHz-7kHz)
+            low_m = np.sum(S[(freqs > 500) & (freqs < 2500)], axis=0)
+            high_m = np.sum(S[(freqs > 4500) & (freqs < 7000)], axis=0)
+            
+            tilts = high_m / (low_m + 1e-6)
+            # Filter zero regions
+            tilts = tilts[tilts > 0.01]
+            
+            if len(tilts) > 5:
+                tilt_avg = float(np.mean(tilts))
+                tilt_var = float(np.std(tilts) / (tilt_avg + 1e-6))
+                
+                # DETECTION LOGIC: AI has BOTH high tilt AND very low variance (stable artifice)
+                # Humans with clear mics have high tilt but high variance (natural dynamics)
+                is_ai_tilt = (tilt_avg > 0.65) and (tilt_var < 0.22)
+            else:
+                tilt_avg, tilt_var, is_ai_tilt = 0.0, 1.0, False
         except Exception:
-            tilt, is_ai_tilt = 0.0, False
+            tilt_avg, tilt_var, is_ai_tilt = 0.0, 1.0, False
 
-    note("spectral_tilt", tilt, is_ai_tilt, 1.5, "Spectral tilt anomaly detected (TTS vocoder signature)")
+    note("spectral_consistency", tilt_var, is_ai_tilt, 2.0, 
+         "Inhumanly stable spectral envelope (AI vocoder characteristic)")
+    
+    # We also log the raw tilt as a minor marker if it's extreme
+    note("spectral_tilt", tilt_avg, tilt_avg > 0.95, 0.5, "Extreme high-frequency amplification")
 
     note("pitch_entropy", pitch_entropy,
          pitch_entropy < 0.35, 2.0,  # Lowered threshold from 0.45 to be more conservative
@@ -360,13 +383,13 @@ def rule_based_score(feats: np.ndarray, y: np.ndarray = None, sr: int = None) ->
          "Pause timing too regular — machine-generated prosody pattern")
 
     if total_weight == 0:
-        return 0.5, "Insufficient acoustic data for analysis"
+        return 0.5, "Insufficient acoustic data for analysis", 0
 
     score = float(ai_weight / total_weight)
     explanation = "; ".join(reasons) if reasons else \
         "Acoustic features fall within normal human speech parameters"
 
-    return score, explanation
+    return score, explanation, ai_markers
 
 
 class LocalVoiceDetector:
@@ -409,6 +432,7 @@ class LocalVoiceDetector:
           confidence  — float [0, 1], confidence in the prediction
           method      — "trained_model" | "rule_based"
           reason      — human-readable explanation
+          marker_count — int, number of AI markers found
         """
         feats = extract_features(y, sr)
 
@@ -422,7 +446,7 @@ class LocalVoiceDetector:
                 score = float(proba[1]) if len(proba) > 1 else float(proba[0])
                 
                 # 2. Rule-based heuristic score
-                rule_score, rule_reason = rule_based_score(feats, y, sr)
+                rule_score, rule_reason, marker_count = rule_based_score(feats, y, sr)
                 
                 # Blend the ML score and the Rule-Based score
                 # If the physical rules detect strong AI markers (rule_score > 0.65),
@@ -442,12 +466,13 @@ class LocalVoiceDetector:
                     "reason":    rule_reason if blended_score > 0.5 else
                                  "Acoustic features consistent with human speech",
                     "features":  feats.tolist(),
+                    "marker_count": marker_count
                 }
             except Exception as e:
                 logger.warning(f"[ScamDefy] Trained model inference failed: {e}. Falling back to rules.")
 
         # Rule-based fallback
-        score, reason = rule_based_score(feats)
+        score, reason, marker_count = rule_based_score(feats)
         # More aggressive confidence scaling for physical rule hits
         confidence = 0.5 + abs(score - 0.5) * 1.2
         confidence = float(min(confidence, 0.96))  # Raised from 0.88 for judges' confidence

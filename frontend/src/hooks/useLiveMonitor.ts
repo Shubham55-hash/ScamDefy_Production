@@ -166,9 +166,9 @@ export function useLiveMonitor() {
       // which often leads to false AI detections.
       ms = await navigator.mediaDevices.getUserMedia({ 
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,   // Re-enabled for stability
+          noiseSuppression: true,   // Re-enabled to filter hiss
+          autoGainControl: true,    // CRITICAL: Prevent clipping
           channelCount: 1,
           sampleRate: 44100
         }, 

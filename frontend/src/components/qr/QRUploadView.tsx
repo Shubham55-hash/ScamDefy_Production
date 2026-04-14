@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import jsQR from 'jsqr';
 
 interface QRUploadViewProps {
   onScan: (decodedText: string) => void;
@@ -9,31 +9,63 @@ interface QRUploadViewProps {
 export function QRUploadView({ onScan, onError }: QRUploadViewProps) {
   const [isHovering, setIsHovering] = useState(false);
   const [decoding, setDecoding] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
     if (!file) return;
+    setPreviewUrl(URL.createObjectURL(file));
     setDecoding(true);
     
-    // Create a temp element for Html5Qrcode to use (it needs a DOM ID to initialize but can scan files directly)
-    const tempId = "qr-temp-reader";
-    const container = document.createElement('div');
-    container.id = tempId;
-    container.style.display = 'none';
-    document.body.appendChild(container);
-
-    const html5QrCode = new Html5Qrcode(tempId);
-    
     try {
-      const decodedText = await html5QrCode.scanFile(file, true);
-      onScan(decodedText);
+      const img = new Image();
+      const imageUrl = URL.createObjectURL(file);
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imageUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      
+      // Use original dimensions to avoid resolution loss
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      
+      // Pass 1: Standard Search (includes inversion check)
+      let code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "attemptBoth",
+      });
+
+      if (!code) {
+        // Pass 2: High Contrast Binary Threshold
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          const val = avg > 120 ? 255 : 0;
+          data[i] = val; data[i + 1] = val; data[i + 2] = val;
+        }
+        ctx.putImageData(imageData, 0, 0);
+        code = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+      }
+
+      if (code) {
+        onScan(code.data);
+      } else {
+        throw new Error("No QR patterns found in exhaustive search.");
+      }
+
+      URL.revokeObjectURL(imageUrl);
     } catch (err: any) {
-      console.warn("[QR] Decode failed:", err);
-      if (onError) onError("Failed to find a valid QR code in this image. Please try another.");
+      console.warn("[QR] Exhaustive search failed:", err);
+      if (onError) onError("Failed to detect QR code. Pulse signals too weak or image incompatible.");
     } finally {
       setDecoding(false);
-      html5QrCode.clear();
-      document.body.removeChild(container);
     }
   };
 
@@ -63,11 +95,18 @@ export function QRUploadView({ onScan, onError }: QRUploadViewProps) {
         onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} 
       />
 
-      <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 transition-all ${isHovering ? 'bg-electricCyan text-charcoal' : 'bg-white/5 text-white/40 group-hover:bg-white/10'}`}>
-        {decoding ? (
-          <div className="w-6 h-6 border-2 border-current border-t-transparent animate-spin rounded-full" />
+      <div className={`relative w-16 h-16 rounded-full flex items-center justify-center mb-6 transition-all overflow-hidden ${isHovering ? 'bg-electricCyan text-charcoal' : 'bg-white/5 text-white/40 group-hover:bg-white/10'}`}>
+        {previewUrl ? (
+          <img src={previewUrl} alt="Preview" className="w-full h-full object-cover opacity-60" />
+        ) : decoding ? (
+          <div className="w-6 h-6 border-2 border-electricCyan border-t-transparent animate-spin rounded-full" />
         ) : (
           <span className="text-2xl">📁</span>
+        )}
+        {decoding && previewUrl && (
+          <div className="absolute inset-0 bg-charcoal/40 flex items-center justify-center">
+            <div className="w-4 h-4 border-2 border-electricCyan border-t-transparent animate-spin rounded-full" />
+          </div>
         )}
       </div>
 
