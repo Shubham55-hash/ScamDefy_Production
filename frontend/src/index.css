@@ -14,6 +14,12 @@
   --animate-float: float 6s ease-in-out infinite;
   --animate-float-delay: float 6s ease-in-out -2s infinite;
   --animate-terminal-scroll: terminal-scroll 20s linear infinite;
+  --animate-scan-line: scan-line 2s ease-in-out infinite;
+
+  @keyframes scan-line {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(250px); }
+  }
 
   @keyframes spin-reverse {
     from { transform: rotate(360deg); }

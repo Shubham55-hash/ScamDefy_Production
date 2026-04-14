@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveMonitor } from '../../hooks/useLiveMonitor';
 import { LiveWaveform } from './LiveWaveform';
+import { DetectionTrend } from './DetectionTrend';
 import type { LiveVerdictEntry } from '../../types';
 
 const CHUNK_SECS = 6;
@@ -89,7 +90,7 @@ export function LiveMonitor() {
     }
     setCountdown(chunkDurationMs / 1000);
     countdownRef.current = setInterval(() => {
-      setCountdown(prev => {
+      setCountdown((prev: number) => {
         if (prev <= 1) return chunkDurationMs / 1000;
         return prev - 1;
       });
@@ -237,6 +238,9 @@ export function LiveMonitor() {
           </div>
         </div>
       )}
+
+      {/* Detection Trend Graph */}
+      <DetectionTrend verdicts={verdicts} />
 
       {/* Verdict log */}
       <div className="glass-panel rounded-xl p-5">

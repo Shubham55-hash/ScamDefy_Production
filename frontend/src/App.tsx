@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Dashboard } from './screens/Dashboard';
 import { WebThreats } from './screens/WebThreats';
+import { QRScan } from './screens/QRScan';
 import { CallLogs } from './screens/CallLogs';
 import { Settings } from './screens/Settings';
 import { TestDashboard } from './screens/TestDashboard';
@@ -12,6 +13,7 @@ import type { Screen } from './types';
 const NAV_LINKS: Array<{ id: Screen; label: string; desktopLabel: string; testOnly?: boolean }> = [
   { id: 'dashboard',  label: 'Home',     desktopLabel: 'Command Center'   },
   { id: 'webthreats', label: 'Scanner',  desktopLabel: 'Surveillance'     },
+  { id: 'qrscan',     label: 'QR',       desktopLabel: 'QR Shield'         },
   { id: 'calllogs',   label: 'Voice',    desktopLabel: 'Neural Net'        },
   { id: 'settings',   label: 'Settings', desktopLabel: 'Encrypted Logs'   },
   { id: 'testlab',    label: 'Test',     desktopLabel: 'Test Lab ⚗',       testOnly: true },
@@ -34,41 +36,7 @@ function BgAmbience() {
   );
 }
 
-// Fixed threat stream footer
-function ThreatStreamFooter() {
-  return (
-    <footer className="fixed bottom-0 left-0 w-full h-12 glass-panel border-t border-white/5 flex items-center z-50 overflow-hidden">
-      <div className="bg-electricCyan px-4 h-full flex items-center shrink-0">
-        <span className="text-charcoal font-black text-[10px] tracking-[0.2em] uppercase italic">Threat Stream</span>
-      </div>
-      <div className="flex-grow font-mono text-[10px] text-white/40 tracking-widest whitespace-nowrap overflow-hidden relative">
-        <div className="absolute inset-0 flex items-center animate-terminal-scroll space-x-12 pl-8">
-          <span>[INFO] REDIRECT DETECTED FROM: 221.18.99.102 ... [CLEAN]</span>
-          <span className="text-electricMagenta">[ALERT] UNUSUAL HEADER INJECTION AT 09:44:21</span>
-          <span>[INFO] IP GEOLOCATION: NETHERLANDS (EU-W1)</span>
-          <span>[INFO] SCANNING PAYLOAD 4492-X ... [PASSED]</span>
-          <span className="text-electricCyan">[NEURAL] SIMILARITY MATCH 4% WITH KNOWN DB</span>
-          <span>[INFO] MALWARE SIGNATURE CHECK CLEAN</span>
-          <span className="text-electricMagenta">[ALERT] SUSPICIOUS DNS PATTERN FLAGGED</span>
-          <span>[INFO] SSL CERTIFICATE CHAIN ... [VERIFIED]</span>
-          {/* duplicate for seamless loop */}
-          <span>[INFO] REDIRECT DETECTED FROM: 221.18.99.102 ... [CLEAN]</span>
-          <span className="text-electricMagenta">[ALERT] UNUSUAL HEADER INJECTION AT 09:44:21</span>
-          <span>[INFO] IP GEOLOCATION: NETHERLANDS (EU-W1)</span>
-          <span>[INFO] SCANNING PAYLOAD 4492-X ... [PASSED]</span>
-          <span className="text-electricCyan">[NEURAL] SIMILARITY MATCH 4% WITH KNOWN DB</span>
-          <span>[INFO] MALWARE SIGNATURE CHECK CLEAN</span>
-          <span className="text-electricMagenta">[ALERT] SUSPICIOUS DNS PATTERN FLAGGED</span>
-          <span>[INFO] SSL CERTIFICATE CHAIN ... [VERIFIED]</span>
-        </div>
-      </div>
-      <div className="bg-white/5 px-6 h-full flex items-center shrink-0 text-[10px] font-mono space-x-4">
-        <span className="text-electricCyan">CPU: 12%</span>
-        <span className="text-white/40">SECURE_LINK_ESTABLISHED</span>
-      </div>
-    </footer>
-  );
-}
+
 
 export default function App() {
   console.log("[ScamDefy] App Component Rendering...");
@@ -123,24 +91,26 @@ export default function App() {
       <BgAmbience />
       <ToastContainer />
 
-      {/* Desktop top nav */}
+      {/* Desktop side nav */}
       {isDesktop && screen !== 'landing' && (
-        <header className="fixed top-0 left-0 w-full z-50 px-6 py-4 flex justify-between items-center mix-blend-lighten glass-panel border-b border-white/5">
+        <aside className="fixed top-0 left-0 h-screen w-64 z-50 flex flex-col glass-panel border-r border-white/5 bg-slate-950/80">
           {/* Logo */}
-          <button
-            onClick={() => navigate('dashboard')}
-            className="flex items-center space-x-3 cursor-pointer"
-          >
-            <div className="w-9 h-9 border-2 border-electricCyan hexagon-clip flex items-center justify-center animate-pulse">
-              <div className="w-3.5 h-3.5 bg-electricCyan hexagon-clip" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tighter uppercase italic">
-              ScamDefy
-            </h1>
-          </button>
+          <div className="p-8 border-b border-white/5">
+            <button
+              onClick={() => navigate('dashboard')}
+              className="flex items-center space-x-3 cursor-pointer group"
+            >
+              <div className="w-9 h-9 border-2 border-electricCyan hexagon-clip flex items-center justify-center animate-pulse shrink-0">
+                <div className="w-3.5 h-3.5 bg-electricCyan hexagon-clip" />
+              </div>
+              <h1 className="text-xl font-bold tracking-tighter uppercase italic text-white group-hover:text-electricCyan transition-colors">
+                ScamDefy
+              </h1>
+            </button>
+          </div>
 
           {/* Nav links */}
-          <nav className="flex space-x-8 text-xs font-medium tracking-[0.3em] uppercase">
+          <nav className="flex-grow flex flex-col space-y-2 p-4 mt-4">
             {NAV_LINKS.filter(link => !link.testOnly || testMode).map(link => {
               const active = screen === link.id;
               const isTestLink = link.id === 'testlab';
@@ -148,12 +118,12 @@ export default function App() {
                 <button
                   key={link.id}
                   onClick={() => navigate(link.id)}
-                  className={`transition-colors ${
+                  className={`text-left px-4 py-3 rounded-lg text-[10px] font-bold tracking-[0.2em] uppercase transition-all duration-300 ${
                     active
                       ? isTestLink
-                        ? 'text-electricMagenta border-b border-electricMagenta pb-0.5'
-                        : 'text-electricCyan border-b border-electricCyan pb-0.5'
-                      : 'opacity-60 hover:text-electricCyan hover:opacity-100'
+                        ? 'text-electricMagenta bg-electricMagenta/10 border-l-2 border-electricMagenta'
+                        : 'text-electricCyan bg-electricCyan/10 border-l-2 border-electricCyan'
+                      : 'text-slate-400 hover:text-white hover:bg-white/5 border-l-2 border-transparent'
                   }`}
                 >
                   {link.desktopLabel}
@@ -163,18 +133,22 @@ export default function App() {
           </nav>
 
           {/* Status */}
-          <div className="text-right">
-            <p className="text-[10px] uppercase tracking-widest opacity-50">System Status</p>
-            <p className="text-xs text-electricCyan font-mono">OPTIMAL // PROTECTED</p>
+          <div className="p-6 border-t border-white/5 mt-auto bg-slate-900/40">
+            <p className="text-[10px] uppercase tracking-widest opacity-50 mb-1">System Status</p>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-electricCyan rounded-full animate-pulse shadow-[0_0_8px_#00f2ff]" />
+              <p className="text-xs text-electricCyan font-mono">OPTIMAL // PROTECTED</p>
+            </div>
           </div>
-        </header>
+        </aside>
       )}
 
       {/* Lazy-mount */}
-      <main className={`relative z-10 ${screen === 'landing' ? '' : (isDesktop ? 'pt-20 pb-16' : 'pb-28')}`}>
+      <main className={`relative z-10 ${screen === 'landing' ? '' : (isDesktop ? 'ml-64 pb-16 min-h-screen' : 'pb-28')}`}>
         {visited.has('landing')    && <div style={{ display: screen === 'landing'    ? 'block' : 'none' }}><LandingPage onNavigate={navigate} /></div>}
         {visited.has('dashboard')  && <div style={{ display: screen === 'dashboard'  ? 'block' : 'none' }}><Dashboard /></div>}
         {visited.has('webthreats') && <div style={{ display: screen === 'webthreats' ? 'block' : 'none' }}><WebThreats /></div>}
+        {visited.has('qrscan')     && <div style={{ display: screen === 'qrscan'     ? 'block' : 'none' }}><QRScan /></div>}
         {visited.has('calllogs')   && <div style={{ display: screen === 'calllogs'   ? 'block' : 'none' }}><CallLogs /></div>}
         {visited.has('settings')   && <div style={{ display: screen === 'settings'   ? 'block' : 'none' }}><Settings /></div>}
         {testMode && visited.has('testlab') && <div style={{ display: screen === 'testlab' ? 'block' : 'none' }}><TestDashboard /></div>}
@@ -185,8 +159,7 @@ export default function App() {
         <BottomNav active={screen} onNav={navigate} testMode={testMode} />
       )}
 
-      {/* Threat stream footer — always visible except on landing page */}
-      {screen !== 'landing' && <ThreatStreamFooter />}
+
     </div>
   );
 }

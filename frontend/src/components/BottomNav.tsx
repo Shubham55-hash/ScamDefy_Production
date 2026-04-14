@@ -6,6 +6,7 @@ interface Props { active: Screen; onNav: (s: Screen) => void; testMode?: boolean
 const TABS: Array<{ id: Screen; icon: string; label: string }> = [
   { id: 'dashboard',  icon: '⬡', label: 'HOME'    },
   { id: 'webthreats', icon: '◉', label: 'SCAN'    },
+  { id: 'qrscan',     icon: '⚔', label: 'QR'      },
   { id: 'calllogs',   icon: '◈', label: 'VOICE'   },
   { id: 'settings',   icon: '⊛', label: 'CONFIG'  },
 ];

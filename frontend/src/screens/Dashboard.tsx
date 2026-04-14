@@ -104,24 +104,24 @@ function OrbCanvas({ score, verdict }: { score: number | null; verdict: string |
 
       {/* Floating data markers — update after scan */}
       <div
-        className="absolute -top-8 -right-16 md:-right-24 glass-panel p-3 rounded-tl-2xl rounded-br-2xl border-l-2 border-electricCyan animate-float text-left"
-        style={{ minWidth: 130 }}
+        className="absolute -top-8 -right-4 md:-right-8 glass-panel p-3 rounded-tl-2xl rounded-br-2xl border-l-2 border-electricCyan animate-float text-left bg-[#0a0b0d]/90 z-20"
+        style={{ minWidth: 140 }}
       >
         <p className="text-[9px] text-electricCyan font-mono">
-          {verdict ? `VERDICT: ${verdict}` : 'ENCRYPT_LEVEL: AES-256'}
+          {verdict ? `VERDICT: ${verdict}` : 'SHIELD_INTEGRITY: 100%'}
         </p>
         <p className="text-[9px] opacity-60 font-mono">
-          {score !== null ? `SCORE: ${score.toFixed(1)}/100` : 'NODE_ID: 0x992B-X'}
+          {score !== null ? `RISK_LEVEL: ${score.toFixed(1)}/100` : 'CORE_VERSION: V2.4-STABLE'}
         </p>
       </div>
       <div
-        className="absolute -bottom-4 -left-16 md:-left-24 glass-panel p-3 rounded-tr-2xl rounded-bl-2xl border-r-2 border-electricMagenta animate-float-delay text-left"
-        style={{ minWidth: 130 }}
+        className="absolute -bottom-4 -left-4 md:-left-8 glass-panel p-3 rounded-tr-2xl rounded-bl-2xl border-r-2 border-electricMagenta animate-float-delay text-left bg-[#0a0b0d]/90 z-20"
+        style={{ minWidth: 140 }}
       >
         <p className="text-[9px] text-electricMagenta font-mono">
-          {score !== null ? `THREAT_VECTOR: ${verdict}` : 'THREAT_VECTOR: NULL'}
+          {verdict ? `THREAT_VECTOR: ${verdict}` : 'THREAT_MONITOR: ACTIVE'}
         </p>
-        <p className="text-[9px] opacity-60 font-mono">ORIGIN: DECENTRALIZED</p>
+        <p className="text-[9px] opacity-60 font-mono">SECURE_LINK: ESTABLISHED</p>
       </div>
     </div>
   );
@@ -157,16 +157,16 @@ export function Dashboard() {
   }, [setHealth, setStats]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start pt-8 pb-20 px-6 relative">
+    <div className="min-h-screen pt-16 pb-20 px-6 relative w-full max-w-7xl mx-auto flex flex-col items-center justify-start">
 
-      {/* Stats chips */}
-      <div className="flex gap-3 mb-8 flex-wrap justify-center w-full max-w-3xl">
+      {/* Stats chips - Restored to centered KPI Row */}
+      <div className="flex gap-3 mb-12 flex-wrap justify-center w-full">
         {[
           { label: "TODAY'S THREATS", value: statsLoading ? '···' : todayBlocked, color: '#f97316' },
           { label: 'TOTAL BLOCKED',   value: statsLoading ? '···' : totalBlocked, color: '#ef4444' },
           { label: 'SYSTEM STATUS',   value: statsLoading ? '···' : (health ? 'OPTIMAL' : 'OFFLINE'), color: health ? '#00f2ff' : '#ef4444' },
         ].map(s => (
-          <div key={s.label} className="glass-panel rounded-full px-5 py-2 flex items-center gap-3">
+          <div key={s.label} className="glass-panel rounded-full px-5 py-2 flex items-center gap-3 bg-white/[0.01]">
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: s.color, boxShadow: `0 0 6px ${s.color}` }} />
             <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest">{s.label}:</span>
             <span className="text-sm font-black font-mono" style={{ color: s.color }}>{s.value}</span>
@@ -174,81 +174,74 @@ export function Dashboard() {
         ))}
       </div>
 
-      {/* Orb */}
-      <div className="mb-12">
+      {/* Orb Tracker - Restored to Center focal point */}
+      <div className="flex flex-col items-center mb-16">
         <OrbCanvas score={result?.score ?? null} verdict={result?.verdict ?? null} />
       </div>
 
-      {/* Error */}
-      {scanError && (
-        <div className="w-full max-w-2xl mb-6">
-          <ErrorBanner error={scanError} />
+      {/* Interaction Layer */}
+      <div className="w-full max-w-4xl flex flex-col items-center">
+        {/* URL input */}
+        <div className="w-full mb-10">
+          <UrlInput onScan={scan} loading={scanLoading} />
         </div>
-      )}
 
-      {/* AI explanation after scan */}
-      {result?.explanation && (
-        <div className="w-full max-w-2xl mb-6 glass-panel rounded-xl p-5 border-l-2 border-electricCyan slide-up">
-          <p className="text-[9px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-2">Neural Analysis</p>
-          <p className="text-sm text-white/60 leading-relaxed">{result.explanation}</p>
-          {result.scam_type && (
-            <p className="mt-2 text-[10px] font-mono text-white/30">
-              TYPE: {result.scam_type.replace(/_/g, ' ')} · TIME: {(result.scan_time_ms + 1000).toFixed(0)}ms
-            </p>
-          )}
-        </div>
-      )}
+        {/* Error */}
+        {scanError && (
+          <div className="w-full mb-6">
+            <ErrorBanner error={scanError} />
+          </div>
+        )}
 
-      {/* URL input */}
-      <div className="w-full max-w-2xl mb-16">
-        <UrlInput onScan={scan} loading={scanLoading} />
+        {/* AI explanation after scan */}
+        {result?.explanation && (
+          <div className="w-full mb-8 glass-panel rounded-xl p-6 border-l-2 border-electricCyan slide-up bg-[#00f2ff]/5">
+            <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-3 font-bold">Neural Analysis</p>
+            <p className="text-sm text-white/70 leading-relaxed font-light">{result.explanation}</p>
+            {result.scam_type && (
+              <p className="mt-4 text-[10px] font-mono text-white/40 border-t border-white/5 pt-3">
+                TYPE: {result.scam_type.replace(/_/g, ' ')} · LATENCY: {(result.scan_time_ms + 1000).toFixed(0)}ms
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Module health grid */}
       {health?.modules && (
-        <div className="w-full max-w-5xl">
-          <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/30 mb-6 text-center">Detection Modules</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {Object.entries(health.modules).map(([mod, active], i) => (
-              <div
-                key={mod}
-                className="relative group"
-              >
-                {/* Corner decorators shifted for 2-column layout */}
-                {i % 2 === 0 && <div className="absolute -inset-1 border-l border-t border-electricCyan/20 rounded-tl-2xl pointer-events-none" />}
-                {i % 2 === 1 && <div className="absolute -inset-1 border-r border-t border-electricMagenta/20 rounded-tr-2xl pointer-events-none" />}
-                {i > 1 && <div className="absolute -inset-1 border-b border-electricCyan/5 rounded-2xl pointer-events-none opacity-20" />}
-
-                <div className="glass-panel p-6 rounded-xl h-full flex flex-col">
-                  {/* Hexagon icon */}
-                  <div
-                    className="w-11 h-11 hexagon-clip flex items-center justify-center mb-4 text-lg"
+        <div className="w-full max-w-5xl mt-12">
+          <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/30 mb-8 text-center">Detection Modules</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+            {Object.entries(health.modules).map(([mod, active]) => (
+              <div key={mod} className="glass-panel p-6 rounded-xl h-full flex flex-col bg-white/[0.02] hover:bg-white/[0.04] transition-all border border-white/[0.05] group">
+                {/* Hexagon icon */}
+                <div
+                  className="w-10 h-10 hexagon-clip flex items-center justify-center mb-4 text-base transition-transform group-hover:scale-110"
+                  style={{
+                    border: `1px solid ${active ? '#00f2ff' : '#ff00e5'}40`,
+                    background: `${active ? '#00f2ff' : '#ff00e5'}08`,
+                  }}
+                >
+                  {MODULE_ICONS[mod] ?? '⚙️'}
+                </div>
+                <h3 className="text-sm font-bold mb-1 capitalize text-white/90">{mod.replace(/_/g, ' ')}</h3>
+                <p className="text-[11px] text-white/40 font-light leading-relaxed mb-6">
+                  {active
+                    ? `${mod.replace(/_/g, ' ')} detection module is fully operational.`
+                    : `API key required to enable feature.`}
+                </p>
+                <div className="mt-auto pt-4 border-t border-white/5 flex items-center gap-2">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
                     style={{
-                      border: `1px solid ${active ? '#00f2ff' : '#ff00e5'}40`,
-                      background: `${active ? '#00f2ff' : '#ff00e5'}08`,
+                      background: active ? '#00f2ff' : '#ff00e5',
+                      animation: 'pulse 2s infinite',
+                      boxShadow: `0 0 4px ${active ? '#00f2ff' : '#ff00e5'}`,
                     }}
-                  >
-                    {MODULE_ICONS[mod] ?? '⚙️'}
-                  </div>
-                  <h3 className="text-sm font-bold mb-1 capitalize">{mod.replace(/_/g, ' ')}</h3>
-                  <p className="text-xs text-white/40 font-light leading-relaxed">
-                    {active
-                      ? `${mod.replace(/_/g, ' ')} detection module is fully operational.`
-                      : `API key required to enable ${mod.replace(/_/g, ' ')} scanning.`}
-                  </p>
-                  <div className="mt-auto pt-4 flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{
-                        background: active ? '#00f2ff' : '#ff00e5',
-                        animation: 'pulse 2s infinite',
-                        boxShadow: `0 0 4px ${active ? '#00f2ff' : '#ff00e5'}`,
-                      }}
-                    />
-                    <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">
-                      {active ? 'ACTIVE_SENTINEL' : 'NO_KEY_DETECTED'}
-                    </span>
-                  </div>
+                  />
+                  <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">
+                    {active ? 'ACTIVE_SENTINEL' : 'NO_KEY_DETECTED'}
+                  </span>
                 </div>
               </div>
             ))}
