@@ -183,9 +183,9 @@ def train_and_save():
         sys.exit(1)
 
     logger.info("=== ScamDefy Neural Voice Optimizer ===")
-    logger.info("Generating balanced 2,000 sample dataset...")
+    logger.info("Generating robust 6,000 sample dataset...")
 
-    X, y = build_dataset(n_human=1000, n_ai=1000)
+    X, y = build_dataset(n_human=3000, n_ai=3000)
     logger.info(f"Dataset: {X.shape[0]} samples × {X.shape[1]} features")
 
     X_train, X_test, y_train, y_test = train_test_split(

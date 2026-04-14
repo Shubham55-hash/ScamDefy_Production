@@ -2,9 +2,12 @@ import urllib.parse
 from typing import Dict, Any, List
 
 LEGIT_DOMAINS = [
-    "google.com", "paypal.com", "amazon.com", "microsoft.com", 
-    "apple.com", "facebook.com", "instagram.com", "netflix.com",
-    "bankofamerica.com", "chase.com", "wellsfargo.com", "citi.com"
+    "google.com", "google.co.in", "google.co.uk", "gmail.com", "youtube.com",
+    "apple.com", "icloud.com", "microsoft.com", "outlook.com", "amazon.com", "amazon.in",
+    "facebook.com", "instagram.com", "whatsapp.com", "netflix.com", "spotify.com",
+    "paypal.com", "paytm.com", "phonepe.com", "stripe.com",
+    "bankofamerica.com", "chase.com", "wellsfargo.com", "citi.com", 
+    "sbi.co.in", "hdfcbank.com", "icicibank.com", "incometax.gov.in", "uidai.gov.in"
 ]
 
 PROTECTED_BRANDS = [

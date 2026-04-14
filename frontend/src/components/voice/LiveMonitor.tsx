@@ -53,8 +53,17 @@ function VerdictRow({ entry }: { entry: LiveVerdictEntry }) {
           </span>
         </div>
         {entry.reason && (
-          <p className="text-[9px] font-mono text-white/30 leading-relaxed mt-1 truncate" title={entry.reason}>
+          <p
+            className="text-[9px] font-mono text-white/30 leading-relaxed mt-1"
+            style={{ wordBreak: 'break-word', whiteSpace: 'normal' }}
+            title={entry.reason}
+          >
             {entry.reason}
+          </p>
+        )}
+        {entry.transcript && (
+          <p className="text-[9px] font-mono text-white/40 italic leading-relaxed mt-1 border-t border-white/5 pt-1">
+            "{entry.transcript}"
           </p>
         )}
       </div>
@@ -88,8 +97,17 @@ export function LiveMonitor() {
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
   }, [isRecording, chunkDurationMs]);
 
-  // Synthetic count
+  // Aggregate verdict across all chunks
   const syntheticCount = verdicts.filter(v => v.verdict === 'SYNTHETIC').length;
+  const realCount = verdicts.filter(v => v.verdict === 'REAL').length;
+  const sessionVerdict = verdicts.length === 0
+    ? null
+    : syntheticCount > 0
+      ? 'SYNTHETIC'
+      : realCount > 0 ? 'REAL' : 'UNCERTAIN';
+  const avgConfidence = verdicts.length > 0
+    ? verdicts.reduce((sum, v) => sum + v.confidence_pct, 0) / verdicts.length
+    : 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -182,6 +200,44 @@ export function LiveMonitor() {
         )}
       </div>
 
+      {/* Session Aggregate Verdict Banner */}
+      {sessionVerdict && (
+        <div
+          className="glass-panel rounded-xl px-5 py-4 flex items-center justify-between slide-up"
+          style={{
+            border: `1px solid ${
+              sessionVerdict === 'SYNTHETIC' ? 'rgba(232,121,249,0.35)'
+              : sessionVerdict === 'REAL'    ? 'rgba(74,222,128,0.35)'
+              : 'rgba(245,158,11,0.35)'
+            }`,
+            background: `${
+              sessionVerdict === 'SYNTHETIC' ? 'rgba(232,121,249,0.06)'
+              : sessionVerdict === 'REAL'    ? 'rgba(74,222,128,0.06)'
+              : 'rgba(245,158,11,0.06)'
+            }`,
+          }}
+        >
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-[0.3em] text-white/30 mb-1">SESSION VERDICT</p>
+            <p
+              className="text-sm font-black uppercase tracking-tighter"
+              style={{
+                color: verdictColor(sessionVerdict),
+                textShadow: `0 0 10px ${verdictColor(sessionVerdict)}`,
+              }}
+            >
+              {verdictIcon(sessionVerdict)}&nbsp;{verdictLabel(sessionVerdict)}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[9px] font-mono uppercase tracking-widest text-white/30 mb-1">AVG CONFIDENCE</p>
+            <p className="text-lg font-black tabular-nums" style={{ color: verdictColor(sessionVerdict) }}>
+              {avgConfidence.toFixed(1)}%
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Verdict log */}
       <div className="glass-panel rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
@@ -225,7 +281,7 @@ export function LiveMonitor() {
       <div className="glass-panel rounded-xl px-5 py-4 grid grid-cols-3 gap-4">
         {[
           { label: 'Chunk Size', value: `${CHUNK_SECS}s`, desc: 'Audio analyzed per chunk' },
-          { label: 'Model', value: 'Wav2Vec2', desc: 'Pre-trained deepfake detector' },
+          { label: 'Model', value: '3-Tier', desc: 'Local + Wav2Vec2 + Gemini' },
           { label: 'Latency', value: '~5-8s', desc: 'Time per verdict' },
         ].map((s, i) => (
           <div key={i} className="text-center">

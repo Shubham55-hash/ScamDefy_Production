@@ -48,6 +48,7 @@ export interface VoiceResult {
   confidence_pct: number;
   model_loaded: boolean;
   reason?: string;
+  transcript?: string;
   warning?: string;
   timestamp: string;
 }
@@ -58,6 +59,7 @@ export interface LiveVerdictEntry {
   verdict: VoiceVerdict;
   confidence_pct: number;
   reason?: string;
+  transcript?: string;
   chunk_number: number;
 }
 

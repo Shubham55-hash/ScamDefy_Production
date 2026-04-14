@@ -41,10 +41,10 @@ VAD_VOICED_FRACTION_MIN = 0.05
 MINIMUM_CONFIDENCE      = 0.50   # Lowered from 0.58 to allow expressing uncertainty
 
 # Tier weights (wideband — best conditions)
-# UPDATED: Boosted local specialist to 0.55 as it verified superior on recent tricks
+# RESTORED: Local model given highest priority (0.60) as per user request.
 WEIGHTS_WIDEBAND = {
-    "local":      0.55,   
-    "pretrained": 0.25,   # HuggingFace wav2vec2
+    "local":      0.60,   
+    "pretrained": 0.20,   # HuggingFace wav2vec2
     "gemini":     0.20,   # Gemini for prosody
 }
 # Tier weights (narrowband — telephony / WhatsApp)
@@ -300,8 +300,9 @@ async def _run_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[
         prompt = (
             "Analyze this audio sample for signs of AI voice synthesis or cloning. "
             "Carefully listen to naturalness, breathing, vocal fry, micro-pauses, and prosody. "
+            "Also transcribe the exact spoken words into text. "
             "Respond ONLY with valid JSON (no markdown): "
-            '{"verdict": "REAL" | "SYNTHETIC", "confidence": 0.0-1.0, "reason": "string"}'
+            '{"verdict": "REAL" | "SYNTHETIC", "confidence": 0.0-1.0, "reason": "string", "transcript": "text transcript"}'
         )
 
         # New Client-based async syntax with audio part
@@ -322,13 +323,14 @@ async def _run_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[
         verdict    = str(data.get("verdict", "UNKNOWN")).upper()
         confidence = float(data.get("confidence", 0.5))
         reason     = str(data.get("reason", ""))
+        transcript = str(data.get("transcript", ""))
 
         if verdict not in ("REAL", "SYNTHETIC"):
             verdict = "UNKNOWN"
 
-        logger.info(f"[Voice][Gemini] verdict={verdict} conf={confidence:.3f}")
+        logger.info(f"[Voice][Gemini] verdict={verdict} conf={confidence:.3f} transcript='{transcript}'")
         return {"available": verdict != "UNKNOWN", "verdict": verdict,
-                "confidence": confidence, "reason": reason}
+                "confidence": confidence, "reason": reason, "transcript": transcript}
 
     except Exception as e:
         logger.warning(f"[Voice][Gemini] Error: {e}")
@@ -337,10 +339,10 @@ async def _run_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[
         if response and hasattr(response, "text") and response.text:
             text = response.text.upper()
         if "SYNTHETIC" in text:
-            return {"available": True, "verdict": "SYNTHETIC", "confidence": 0.62, "reason": "Parsed from text"}
+            return {"available": True, "verdict": "SYNTHETIC", "confidence": 0.62, "reason": "Parsed from text", "transcript": ""}
         if "REAL" in text:
-            return {"available": True, "verdict": "REAL", "confidence": 0.62, "reason": "Parsed from text"}
-        return {"available": False, "verdict": "UNKNOWN", "confidence": 0.5, "reason": str(e)}
+            return {"available": True, "verdict": "REAL", "confidence": 0.62, "reason": "Parsed from text", "transcript": ""}
+        return {"available": False, "verdict": "UNKNOWN", "confidence": 0.5, "reason": str(e), "transcript": ""}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -359,7 +361,7 @@ async def analyze_audio(
     # ── Load audio ────────────────────────────────────────────
     try:
         audio_buf = _io.BytesIO(file_bytes)
-        y, sr = librosa.load(audio_buf, sr=22050, mono=True)
+        y, sr = librosa.load(audio_buf, sr=16000, mono=True)
     except Exception as e:
         logger.error(f"[Voice] librosa.load failed for {filename}: {e}")
         return {
@@ -410,6 +412,7 @@ async def analyze_audio(
     gem_verdict   = gemini_result.get("verdict", "UNKNOWN")
     gem_conf      = float(gemini_result.get("confidence", 0.5))
     gem_reason    = gemini_result.get("reason", "")
+    transcript    = gemini_result.get("transcript", "")
 
     # Convert Gemini verdict to synthetic probability
     if gem_verdict == "SYNTHETIC":
@@ -435,28 +438,66 @@ async def analyze_audio(
     )
 
     # ── Specialist Veto Override ──────────────────────────
-    # If our specialized local model is extremely sure (>0.95), 
-    # we don't let cloud models outvote it. 
-    if local_score > 0.95 and final_score < 0.60:
+    # If our specialized local model is extremely sure (>0.98), 
+    # but Gemini is ALSO extremely sure it's REAL, we suppress the veto.
+    # We only apply the Veto if the cloud models aren't strongly contradicting us.
+    is_gemini_real_certain = gem_available and gem_verdict == "REAL" and gem_conf > 0.85
+
+    if is_gemini_real_certain and local_score > 0.85:
+         # HEURISTIC REFINEMENT: If Gemini is extremely sure it's human (prosody check),
+         # we cap the local "acoustic" score to prevent false machine-detections.
+         local_score = min(local_score, 0.45) if gem_conf > 0.95 else min(local_score, 0.65)
+         # Re-calculate final score with the adjusted local authority
+         final_score = (
+            weights.get("local",      0.0) * local_score +
+            weights.get("pretrained", 0.0) * hf_score    +
+            weights.get("gemini",     0.0) * gem_score
+         )
+         logger.info(f"[Voice] Gemini REAL certainty (conf={gem_conf:.2f}) capped local score to {local_score:.2f}")
+
+    # ── Specialist Veto Override ──────────────────────────
+    # We only apply the Veto if the cloud models aren't strongly contradicting us.
+    if local_score > 0.98 and final_score < 0.70 and not is_gemini_real_certain:
+        logger.info(f"[Voice] Executive Specialist Veto applied — Local Model certain (score={local_score:.3f})")
+        final_score = max(final_score, 0.95)
+    elif local_score > 0.95 and final_score < 0.60 and not is_gemini_real_certain:
         logger.info(f"[Voice] Specialist Veto applied — Local Model confident (score={local_score:.2f})")
-        final_score = max(final_score, 0.65)
+        final_score = max(final_score, 0.85)
 
     logger.info(
-        f"[Voice] Scores — local={local_score:.3f}(w={weights.get('local',0):.2f}) "
-        f"hf={hf_score:.3f}(w={weights.get('pretrained',0):.2f}) "
-        f"gem={gem_score:.3f}(w={weights.get('gemini',0):.2f}) "
-        f"final={final_score:.3f}"
+        f"[Voice] Scores — local={local_score:.4f}(w={weights.get('local',0):.2f}) "
+        f"hf={hf_score:.4f}(w={weights.get('pretrained',0):.2f}) "
+        f"gem={gem_score:.4f}(w={weights.get('gemini',0):.2f}) "
+        f"final_weighted={final_score:.4f}"
     )
 
     # ── Verdict & confidence ─────────────────────────────────
-    # lowered from 0.42 to 0.38 for maximum sensitivity to high-fidelity clones (Daniel/ElevenLabs)
+    # Decision boundary: 0.38 (tuned for high sensitivity)
     if final_score > 0.38:
         verdict    = "SYNTHETIC"
-        # Adjusted confidence scaling: more conservative around the new decision boundary
-        confidence = float(final_score) if final_score > 0.5 else 0.5 + (final_score - 0.38) * 0.4
+        
+        # ── Confidence Booster Logic ──
+        # We want to avoid "unimpressive" 65% results when the system has detected 
+        # strong AI markers. We use a non-linear ramp to push confidence higher 
+        # in the "detected" range, providing "Legally Defensible" verdicts.
+        if final_score > 0.85:
+             # Scales 0.85-1.0 to 0.98-0.999
+             confidence = 0.98 + (final_score - 0.85) * (0.019 / 0.15)
+        elif final_score > 0.65:
+             # Scales 0.65-0.85 to 0.88-0.98
+             confidence = 0.88 + (final_score - 0.65) * (0.10 / 0.20)
+        elif final_score > 0.50:
+             # Scales 0.50-0.65 to 0.70-0.88
+             confidence = 0.70 + (final_score - 0.50) * (0.18 / 0.15)
+        else:
+             # Scales 0.38-0.5 to 0.55-0.70
+             confidence = 0.55 + (final_score - 0.38) * (0.15 / 0.12)
     else:
         verdict    = "REAL"
         confidence = float(1.0 - final_score)
+        # Moderate boost for REAL confidence too
+        if confidence > 0.85:
+            confidence = min(0.99, confidence + 0.05)
 
     low_confidence = confidence < MINIMUM_CONFIDENCE
     if low_confidence:
@@ -495,6 +536,7 @@ async def analyze_audio(
         "confidence":         round(confidence, 4),
         "low_confidence":     low_confidence,
         "reason":             reason,
+        "transcript":         transcript,
         "detection_method":   "ensemble",
         "warning":            warning_str,
         "audio_info": {

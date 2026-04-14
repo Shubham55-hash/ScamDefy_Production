@@ -15,19 +15,80 @@ function releaseStream(streamRef: React.MutableRefObject<MediaStream | null>) {
   }
 }
 
-/** Try to create a MediaRecorder with progressively more compatible options.
- *  Starting with no mimeType (browser default) works best across Bluetooth / USB mics.
- */
+/** Try to create a MediaRecorder with progressively more compatible options. */
 function createMediaRecorder(stream: MediaStream): MediaRecorder {
-  try {
-    return new MediaRecorder(stream); // browser default — most compatible
-  } catch {
+  const preferredTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    '',  // browser default
+  ];
+  for (const mimeType of preferredTypes) {
     try {
-      return new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    } catch {
-      throw new Error('MediaRecorder is not supported in this browser');
+      if (mimeType === '' || MediaRecorder.isTypeSupported(mimeType)) {
+        return new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      }
+    } catch { /* try next */ }
+  }
+  throw new Error('MediaRecorder is not supported in this browser');
+}
+
+/**
+ * Encodes a decoded AudioBuffer into a standard WAV file (PCM 16-bit mono).
+ * This is a pure in-memory encoder — no external package needed.
+ */
+function audioBufferToWav(buffer: AudioBuffer): ArrayBuffer {
+  const numChannels = 1; // Always mono for voice analysis
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+
+  // Mix down to mono
+  let samples: Float32Array;
+  if (buffer.numberOfChannels === 1) {
+    samples = buffer.getChannelData(0);
+  } else {
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.getChannelData(1);
+    samples = new Float32Array(ch0.length);
+    for (let i = 0; i < ch0.length; i++) {
+      samples[i] = (ch0[i] + ch1[i]) / 2;
     }
   }
+
+  const dataLength = samples.length * (bitDepth / 8);
+  const wavBuffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(wavBuffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  const blockAlign = numChannels * (bitDepth / 8);
+  const byteRate = sampleRate * blockAlign;
+
+  writeString(0, 'RIFF');
+  view.setUint32(4,  36 + dataLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);          // chunk size
+  view.setUint16(20, format, true);      // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataLength, true);
+
+  // Write 16-bit PCM samples
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+
+  return wavBuffer;
 }
 
 export function useLiveMonitor() {
@@ -43,37 +104,53 @@ export function useLiveMonitor() {
   const { addToast } = useAppStore();
 
   const handleChunk = useCallback(async (blob: Blob, chunkNum: number) => {
-    if (blob.size < 1000) return; // ignore tiny/empty blobs
+    // Ignore tiny/empty blobs — 6s of audio at 128kbps opus should be >> 5KB
+    if (blob.size < 3000) {
+      console.warn(`[LiveMonitor] Chunk #${chunkNum} too small (${blob.size}B), skipping`);
+      return;
+    }
     setIsAnalyzing(true);
     try {
-      // 1. Convert WebM/Opus blob to standard WAV
+      // 1. Decode the WebM/Opus blob using the browser's native AudioContext
       const arrayBuffer = await blob.arrayBuffer();
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      // Let's import the package dynamically to avoid top-level require issues
-      const toWav = (await import('audiobuffer-to-wav')).default || await import('audiobuffer-to-wav');
-      
-      const wavBuffer = typeof toWav === 'function' ? toWav(audioBuffer) : toWav.default(audioBuffer);
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      await audioCtx.close(); // release audio resources
+
+      // 2. Encode decoded PCM to WAV using our inline encoder (no package needed)
+      const wavBuffer = audioBufferToWav(audioBuffer);
       const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
 
-      // 2. Send the real WAV file to the backend
+      // 3. Send WAV to the backend — retrieve Gemini key from settings if available
+      const storedSettings = localStorage.getItem('scamdefy_settings');
+      const geminiKey: string | null = storedSettings
+        ? (JSON.parse(storedSettings)?.geminiApiKey ?? null)
+        : null;
+
       const file = new File([wavBlob], `live_chunk_${chunkNum}.wav`, { type: 'audio/wav' });
-      const result = await analyzeVoice(file);
-      
+      const result = await analyzeVoice(file, geminiKey);
+
       const entry: LiveVerdictEntry = {
         id: result.id ?? `chunk-${chunkNum}-${Date.now()}`,
         timestamp: new Date().toISOString(),
         verdict: result.verdict,
         confidence_pct: result.confidence_pct,
         reason: result.reason,
+        transcript: result.transcript,
         chunk_number: chunkNum,
       };
       setVerdicts(prev => [entry, ...prev]); // newest first
       if (result.verdict === 'SYNTHETIC') {
-        addToast('error', `🤖 AI voice detected in live stream — ${result.confidence_pct}% confidence`);
+        addToast('error', `🤖 AI voice detected in live stream — ${result.confidence_pct.toFixed(1)}% confidence`);
+      } else if (result.verdict === 'REAL') {
+        addToast('success', `✅ Chunk #${chunkNum} is real — ${result.confidence_pct.toFixed(1)}%`);
       }
     } catch (err: any) {
-      console.warn('[LiveMonitor] chunk analysis failed:', err);
+      console.error('[LiveMonitor] chunk analysis failed:', err);
+      // Show decode errors as a toast so the user knows something went wrong
+      if (err?.name === 'EncodingError' || err?.message?.includes('decode')) {
+        addToast('warning', `Chunk #${chunkNum} could not be decoded — mic may be incompatible`);
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -85,8 +162,18 @@ export function useLiveMonitor() {
     let ms: MediaStream | null = null;
 
     try {
-      // 1. Request mic access — waits for browser permission dialog
-      ms = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // 1. Request mic access — Disable auto-processing to prevent "robotic" filtering
+      // which often leads to false AI detections.
+      ms = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 1,
+          sampleRate: 44100
+        }, 
+        video: false 
+      });
       streamRef.current = ms;
       setStream(ms);
 

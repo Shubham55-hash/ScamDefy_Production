@@ -31,24 +31,39 @@ FAMOUS_BRANDS = [
 ]
 
 LEGITIMATE_BRAND_DOMAINS = {
-    "google.com", "gmail.com", "youtube.com", "googlemail.com",
-    "apple.com", "icloud.com", "me.com",
-    "microsoft.com", "outlook.com", "hotmail.com", "live.com",
-    "amazon.com", "amazon.in", "amazon.co.uk",
-    "facebook.com", "instagram.com", "whatsapp.com", "meta.com",
+    # Search & Tech
+    "google.com", "google.co.in", "google.co.uk", "google.com.br", "gmail.com", "youtube.com", "googlemail.com",
+    "apple.com", "icloud.com", "me.com", "appleid.apple.com",
+    "microsoft.com", "outlook.com", "hotmail.com", "live.com", "office.com", "bing.com",
+    "amazon.com", "amazon.in", "amazon.co.uk", "amazon.de", "amazon.co.jp",
+    "facebook.com", "instagram.com", "whatsapp.com", "messenger.com", "meta.com",
     "twitter.com", "x.com", "linkedin.com",
-    "paypal.com", "paypal.in",
-    "netflix.com", "spotify.com",
-    "flipkart.com", "myntra.com",
-    "sbi.co.in", "onlinesbi.sbi", "hdfcbank.com", "icicibank.com",
-    "incometax.gov.in", "uidai.gov.in", "irctc.co.in",
-    "binance.com", "coinbase.com",
+    # Payments
+    "paypal.com", "paypal.in", "paytm.com", "phonepe.com", "razorpay.com", "stripe.com",
+    # Entertainment
+    "netflix.com", "spotify.com", "disneyplus.com",
+    # E-commerce
+    "flipkart.com", "myntra.com", "ebay.com", "alibaba.com", "aliexpress.com",
+    # Banking
+    "sbi.co.in", "onlinesbi.sbi", "hdfcbank.com", "icicibank.com", "axisbank.com", "kotak.com",
+    # Official
+    "incometax.gov.in", "uidai.gov.in", "irctc.co.in", "india.gov.in", "gov.uk", "usa.gov",
+    # Crypto
+    "binance.com", "coinbase.com", "bitcoin.org", "ethereum.org",
 }
 
 
 def _root_domain(hostname: str) -> str:
     parts = hostname.lower().replace("www.", "").split(".")
-    return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+    if len(parts) < 2:
+        return hostname
+        
+    # Handle multi-part TLDs like .co.uk, .gov.in
+    if parts[-2] in ("com", "co", "gov", "org", "net", "edu", "res", "sch", "ac"):
+        if len(parts) >= 3:
+            return ".".join(parts[-3:])
+
+    return ".".join(parts[-2:])
 
 
 def get_brand_impersonation(hostname: str) -> Dict[str, Any]:
@@ -80,7 +95,7 @@ def get_brand_impersonation(hostname: str) -> Dict[str, Any]:
     return {"impersonates": None, "weight": 0}
 
 
-def calculate_url_pattern_score(url: str) -> float:
+def calculate_url_pattern_score(url: str, is_whitelisted: bool = False) -> float:
     score = 0
     try:
         url_lower = url.lower()
@@ -89,7 +104,9 @@ def calculate_url_pattern_score(url: str) -> float:
 
         # 1. Non-HTTPS is a significant signal but not definitive
         if parsed_url.scheme == "http":
-            score += 35
+            # Legitimate domains on HTTP are NOT suspicious for scam analysis
+            # We zero it out for whitelisted domains to avoid user confusion
+            score += 0 if is_whitelisted else 35
 
         # 2. Length based signals
         if len(url) > 80:  score += 15
@@ -138,11 +155,22 @@ def score(
     url: str,
     domain_age_result: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
+    # Identify if the domain is a known legitimate brand
+    is_whitelisted = False
+    try:
+        parsed_tmp = urllib.parse.urlparse(url)
+        hostname_tmp = (parsed_tmp.netloc or parsed_tmp.path).lower().replace("www.", "")
+        root_tmp = _root_domain(hostname_tmp)
+        if root_tmp in LEGITIMATE_BRAND_DOMAINS:
+            is_whitelisted = True
+    except Exception:
+        pass
+
     gsb_threat = gsb_result.get("is_threat", False)
     uh_threat  = uh_result.get("is_phishing", False)
 
     domain_contribution = float(domain_result.get("risk_contribution", 0.0))
-    url_pattern_score   = float(calculate_url_pattern_score(url))
+    url_pattern_score   = float(calculate_url_pattern_score(url, is_whitelisted=is_whitelisted))
 
     # Domain Age Signal
     age_score  = 0.0

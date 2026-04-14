@@ -65,6 +65,19 @@ export function VoiceResult({ result }: Props) {
         </div>
       )}
 
+      {/* Transcript */}
+      {result.transcript && (
+        <div
+          className="mb-4 rounded-lg px-4 py-3"
+          style={{ background: `rgba(255,255,255,0.02)`, border: `1px solid rgba(255,255,255,0.1)` }}
+        >
+          <p className="text-[9px] font-mono uppercase tracking-[0.25em] text-white/30 mb-1">Captured Transcript</p>
+          <p className="text-xs font-mono leading-relaxed text-white/70 italic">
+            "{result.transcript}"
+          </p>
+        </div>
+      )}
+
       {/* Model status */}
       <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
         <div className="flex items-center gap-2">

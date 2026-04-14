@@ -77,6 +77,7 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
         # pass-through fields used by VoiceResult.tsx
         "low_confidence":   result.get("low_confidence", False),
         "reason":           reason,
+        "transcript":       result.get("transcript", ""),
     }
 
 
