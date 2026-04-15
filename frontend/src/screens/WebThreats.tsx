@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUrlScan } from '../hooks/useUrlScan';
 import { useThreatHistory } from '../hooks/useThreatHistory';
 import { UrlInput } from '../components/scanner/UrlInput';
@@ -9,6 +9,7 @@ import { ThreatFilters } from '../components/threats/ThreatFilters';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/SkeletonCard';
+import { useGuardianAlert } from '../hooks/useGuardianAlert';
 
 type Tab = 'scanner' | 'history';
 
@@ -33,6 +34,13 @@ export function WebThreats() {
   const [tab, setTab] = useState<Tab>('scanner');
   const { result, loading, error, scan, reset } = useUrlScan();
   const { threats, loading: threatLoading, error: threatError, load, clear, activeFilter, applyFilter } = useThreatHistory();
+  const { checkAndAlert } = useGuardianAlert();
+
+  // Fire guardian alert whenever a high-risk scan result arrives
+  useEffect(() => {
+    if (!result) return;
+    checkAndAlert('URL_SCAN', result.scam_type || 'Suspicious URL', Math.round(result.score));
+  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen px-4 md:px-8 py-8 max-w-4xl mx-auto">

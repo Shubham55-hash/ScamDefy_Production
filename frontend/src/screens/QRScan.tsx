@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUrlScan } from '../hooks/useUrlScan';
 import { QRScannerView } from '../components/qr/QRScannerView';
 import { QRUploadView } from '../components/qr/QRUploadView';
@@ -6,6 +6,7 @@ import { ScanResultCard } from '../components/scanner/ScanResultCard';
 import { ThreatBreakdown } from '../components/scanner/ThreatBreakdown';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { useGuardianAlert } from '../hooks/useGuardianAlert';
 
 export function QRScan() {
   const { result, loading, error, progress, scan, reset } = useUrlScan();
@@ -13,6 +14,13 @@ export function QRScan() {
   const [activeTab, setActiveTab] = useState<'live' | 'upload'>('live');
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const { checkAndAlert, triggerEscalation } = useGuardianAlert();
+
+  // Auto-alert when a high-risk QR scan result arrives
+  useEffect(() => {
+    if (!result) return;
+    checkAndAlert('QR_SCAN', result.scam_type || 'Suspicious QR Code', Math.round(result.score));
+  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScan = (decodedText: string) => {
     setLocalError(null);
@@ -163,10 +171,17 @@ export function QRScan() {
                 ← SCAN NEW QR
               </button>
               
-              <a
-                href={result.url}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={async () => {
+                  if (result && result.verdict !== 'SAFE') {
+                    await triggerEscalation(
+                      'QR_SCAN',
+                      result.scam_type || 'Suspicious QR Code',
+                      Math.round(result.score),
+                    );
+                  }
+                  window.open(result?.url, '_blank', 'noopener,noreferrer');
+                }}
                 className="py-4 rounded-xl flex items-center justify-center gap-3 text-[10px] font-bold uppercase tracking-[0.2em] transition-all"
                 style={{
                   background: result.verdict === 'SAFE' ? 'rgba(0, 242, 255, 0.15)' : 'rgba(239, 68, 68, 0.1)',
@@ -175,7 +190,7 @@ export function QRScan() {
                 }}
               >
                 {result.verdict === 'SAFE' ? '✓ PROCEED TO URL' : '⚠️ VISIT ANYWAY'}
-              </a>
+              </button>
             </div>
             
             {result.verdict !== 'SAFE' && (

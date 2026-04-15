@@ -3,6 +3,7 @@ import { useLiveMonitor } from '../../hooks/useLiveMonitor';
 import { LiveWaveform } from './LiveWaveform';
 import { DetectionTrend } from './DetectionTrend';
 import type { LiveVerdictEntry } from '../../types';
+import { useGuardianAlert } from '../../hooks/useGuardianAlert';
 
 const CHUNK_SECS = 6;
 
@@ -78,6 +79,22 @@ export function LiveMonitor() {
   const [countdown, setCountdown] = useState(chunkDurationMs / 1000);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const { checkAndAlert } = useGuardianAlert();
+  // Track how many verdicts we've already processed to avoid re-alerting on re-render
+  const processedCountRef = useRef(0);
+
+  // Fire guardian alert for each new SYNTHETIC verdict with high confidence
+  useEffect(() => {
+    if (verdicts.length <= processedCountRef.current) return;
+    const newVerdicts = verdicts.slice(processedCountRef.current);
+    processedCountRef.current = verdicts.length;
+    const syntheticHigh = newVerdicts.find(
+      v => v.verdict === 'SYNTHETIC' && v.confidence_pct >= 75,
+    );
+    if (syntheticHigh) {
+      checkAndAlert('VOICE_SCAN', 'AI Voice / Deepfake Detected', Math.round(syntheticHigh.confidence_pct));
+    }
+  }, [verdicts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isRecording = liveState === 'recording';
 
