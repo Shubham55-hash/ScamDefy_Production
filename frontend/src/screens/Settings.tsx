@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useSettings } from '../hooks/useSettings';
 import { clearThreats } from '../api/threatService';
 import { useAppStore } from '../store/appStore';
+import { useSafetyCircle } from '../hooks/useSafetyCircle';
+import type { Screen } from '../types';
 
 const LEVELS = [
   {
@@ -27,9 +29,10 @@ const LEVELS = [
   },
 ];
 
-export function Settings() {
+export function Settings({ onNavigate }: { onNavigate?: (s: Screen) => void }) {
   const { settings, save } = useSettings();
   const { addToast, setThreats, setStats } = useAppStore();
+  const { settings: sc } = useSafetyCircle();
   const [protectionLevel, setProtectionLevel] = useState(settings.protectionLevel);
   const [clearConfirm, setClearConfirm] = useState(false);
 
@@ -118,6 +121,63 @@ export function Settings() {
         </button>
       </div>
 
+      {/* ── Safety Circle ── */}
+      <div className="mb-8">
+        <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-4">
+          ▹ SAFETY CIRCLE
+        </p>
+        <div
+          className="rounded-xl p-5 flex items-center justify-between gap-4 transition-all"
+          style={{
+            background: sc.enabled ? 'rgba(0,242,255,0.04)' : 'rgba(255,255,255,0.02)',
+            border: `1px solid ${sc.enabled ? 'rgba(0,242,255,0.2)' : 'rgba(255,255,255,0.08)'}`,
+          }}
+        >
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-base shrink-0"
+              style={{
+                background: sc.enabled ? 'rgba(0,242,255,0.1)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${sc.enabled ? 'rgba(0,242,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+              }}
+            >
+              🛡
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-white">Safety Circle</p>
+                <span
+                  className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  style={{
+                    background: sc.enabled ? 'rgba(0,242,255,0.12)' : 'rgba(255,255,255,0.05)',
+                    color: sc.enabled ? '#00f2ff' : 'rgba(255,255,255,0.3)',
+                    border: `1px solid ${sc.enabled ? 'rgba(0,242,255,0.2)' : 'rgba(255,255,255,0.08)'}`,
+                  }}
+                >
+                  {sc.enabled ? '● ACTIVE' : '○ OFF'}
+                </span>
+              </div>
+              <p className="text-[10px] font-mono text-white/30 mt-0.5">
+                {sc.guardians.length === 0
+                  ? 'No guardians configured'
+                  : `${sc.guardians.length} guardian${sc.guardians.length > 1 ? 's' : ''} · ≥${sc.threshold}% threshold`}
+              </p>
+            </div>
+          </div>
+          <button
+            id="open-safety-circle"
+            onClick={() => onNavigate?.('safetycircle')}
+            className="text-[10px] font-mono uppercase tracking-[0.2em] px-4 py-2 rounded-lg shrink-0 transition-all"
+            style={{
+              background: 'rgba(0,242,255,0.06)',
+              border: '1px solid rgba(0,242,255,0.25)',
+              color: '#00f2ff',
+            }}
+          >
+            Configure →
+          </button>
+        </div>
+      </div>
 
       {/* ── System Manifest ── */}
       <div className="glass-panel rounded-xl p-5 mb-8">

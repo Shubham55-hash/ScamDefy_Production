@@ -4,6 +4,7 @@ import { WebThreats } from './screens/WebThreats';
 import { QRScan } from './screens/QRScan';
 import { CallLogs } from './screens/CallLogs';
 import { Settings } from './screens/Settings';
+import { SafetyCircle } from './screens/SafetyCircle';
 import { TestDashboard } from './screens/TestDashboard';
 import { LandingPage } from './screens/LandingPage';
 import { ToastContainer } from './components/ui/Toast';
@@ -145,12 +146,13 @@ export default function App() {
 
       {/* Lazy-mount */}
       <main className={`relative z-10 ${screen === 'landing' ? '' : (isDesktop ? 'ml-64 pb-16 min-h-screen' : 'pb-28')}`}>
-        {visited.has('landing')    && <div style={{ display: screen === 'landing'    ? 'block' : 'none' }}><LandingPage onNavigate={navigate} /></div>}
-        {visited.has('dashboard')  && <div style={{ display: screen === 'dashboard'  ? 'block' : 'none' }}><Dashboard /></div>}
-        {visited.has('webthreats') && <div style={{ display: screen === 'webthreats' ? 'block' : 'none' }}><WebThreats /></div>}
-        {visited.has('qrscan')     && <div style={{ display: screen === 'qrscan'     ? 'block' : 'none' }}><QRScan /></div>}
-        {visited.has('calllogs')   && <div style={{ display: screen === 'calllogs'   ? 'block' : 'none' }}><CallLogs /></div>}
-        {visited.has('settings')   && <div style={{ display: screen === 'settings'   ? 'block' : 'none' }}><Settings /></div>}
+        {visited.has('landing')      && <div style={{ display: screen === 'landing'      ? 'block' : 'none' }}><LandingPage onNavigate={navigate} /></div>}
+        {visited.has('dashboard')    && <div style={{ display: screen === 'dashboard'    ? 'block' : 'none' }}><Dashboard /></div>}
+        {visited.has('webthreats')   && <div style={{ display: screen === 'webthreats'   ? 'block' : 'none' }}><WebThreats /></div>}
+        {visited.has('qrscan')       && <div style={{ display: screen === 'qrscan'       ? 'block' : 'none' }}><QRScan /></div>}
+        {visited.has('calllogs')     && <div style={{ display: screen === 'calllogs'     ? 'block' : 'none' }}><CallLogs /></div>}
+        {visited.has('settings')     && <div style={{ display: screen === 'settings'     ? 'block' : 'none' }}><Settings onNavigate={navigate} /></div>}
+        {visited.has('safetycircle') && <div style={{ display: screen === 'safetycircle' ? 'block' : 'none' }}><SafetyCircle onBack={() => navigate('settings')} /></div>}
         {testMode && visited.has('testlab') && <div style={{ display: screen === 'testlab' ? 'block' : 'none' }}><TestDashboard /></div>}
       </main>
 
