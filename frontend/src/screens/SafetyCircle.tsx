@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useSafetyCircle } from '../hooks/useSafetyCircle';
 import type { Guardian } from '../hooks/useSafetyCircle';
 import { useAppStore } from '../store/appStore';
+import { notifyGuardians, buildNotifyPayload } from '../api/guardianService';
 
 // ── Tiny sub-components ──────────────────────────────────────────────────────
 
@@ -270,6 +271,37 @@ export function SafetyCircle({ onBack }: SafetyCircleProps) {
     update,
   } = useSafetyCircle();
   const { addToast } = useAppStore();
+  const [sendingTest, setSendingTest] = useState(false);
+
+  const handleSendTestAlert = async () => {
+    if (settings.guardians.length === 0) {
+      addToast('warning', 'Add at least one guardian first.');
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const payload = buildNotifyPayload(
+        settings.guardians,
+        'URL_SCAN',
+        'Diagnostic Test Alert',
+        99,
+        settings.userName || 'ScamDefy User',
+        false,
+        true
+      );
+      const res = await notifyGuardians(payload);
+      if (res.sent > 0) {
+        addToast('success', `Test alert sent to ${res.sent} guardian(s). Check inbox!`);
+      } else {
+        const reason = res.details[0]?.reason || 'Unknown failure';
+        addToast('error', `Failed to send: ${reason}`);
+      }
+    } catch (err: any) {
+      addToast('error', `System error: ${err.message || 'Check terminal'}`);
+    } finally {
+      setSendingTest(false);
+    }
+  };
 
   const handleToggle = () => {
     const next = !settings.enabled;
@@ -431,6 +463,30 @@ export function SafetyCircle({ onBack }: SafetyCircleProps) {
             </p>
             <AddGuardianForm onAdd={handleAddGuardian} />
           </>
+        )}
+
+        {/* Test Alert Button */}
+        {settings.guardians.length > 0 && (
+          <div className="mt-8 pt-6 border-t border-white/5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold text-white mb-1">Verify Configuration</p>
+                <p className="text-[10px] font-mono text-white/25">Send a sample alert to test your connection.</p>
+              </div>
+              <button
+                onClick={handleSendTestAlert}
+                disabled={sendingTest}
+                className="text-[11px] font-mono uppercase tracking-[0.2em] px-5 py-2.5 rounded-lg transition-all flex items-center gap-2"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: sendingTest ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)',
+                }}
+              >
+                {sendingTest ? '◌ Sending...' : '⚡ Send Test Alert'}
+              </button>
+            </div>
+          </div>
         )}
 
         {settings.guardians.length >= 2 && (

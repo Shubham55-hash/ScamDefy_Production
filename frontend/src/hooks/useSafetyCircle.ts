@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useAppStore } from '../store/appStore';
 import type { Guardian, SafetyCircleSettings } from '../types';
 
-const COOLDOWN_MS = 0; // Immediate (no cooldown)
+const COOLDOWN_MS = 1800000; // 30 minutes
 
 export function useSafetyCircle() {
   const { scSettings: settings, scUpdate: update } = useAppStore();

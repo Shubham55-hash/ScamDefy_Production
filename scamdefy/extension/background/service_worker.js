@@ -19,6 +19,7 @@ chrome.storage.local.get(['popupThreshold', 'bannerThreshold'], (res) => {
 });
 
 const scanCache = new Map();
+const sessionWhitelist = new Set();
 
 // Inject reference so messageRouter can clear it on bypass_cache
 injectScanCacheRef(scanCache);
@@ -66,6 +67,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(res => {
           if (res && res.success) showWarningPage(sender.tab.id, url, res.data);
         });
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+  if (message.type === 'PROCEED_ANYWAY') {
+    const { url } = message.payload;
+    if (url) {
+      sessionWhitelist.add(url);
+      // Also add to permanent storage whitelist
+      chrome.storage.local.get(['whitelist'], (res) => {
+        const list = res.whitelist || [];
+        if (!list.includes(url)) {
+          chrome.storage.local.set({ whitelist: [...list, url] });
+        }
+      });
+      // Navigate to the real URL
+      chrome.tabs.update(sender.tab.id, { url });
     }
     sendResponse({ success: true });
     return true;
@@ -209,6 +227,13 @@ console.log('[ScamDefy] BACKGROUND LISTENERS REGISTERED');
 
 // ─── Main decision function ──────────────────────────────────────────────────
 async function handleScanResult(tabId, url, scanResponse) {
+  // Check whitelists
+  const { whitelist = [] } = await chrome.storage.local.get(['whitelist']);
+  if (whitelist.includes(url) || sessionWhitelist.has(url)) {
+    console.log('[ScamDefy] ✓ Skipping block for whitelisted URL:', url);
+    return;
+  }
+
   if (!scanResponse?.success || !scanResponse?.data) {
     console.warn('[ScamDefy] No scan data for:', url);
     return;

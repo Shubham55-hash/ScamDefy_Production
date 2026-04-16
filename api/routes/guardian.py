@@ -41,6 +41,7 @@ class NotifyRequest(BaseModel):
     risk_score: int                       # 0–100
     user_name: Optional[str] = "A user"
     is_escalation: bool = False
+    bypass_cooldown: bool = False
 
     @field_validator("guardians")
     @classmethod
@@ -89,6 +90,7 @@ async def notify_guardians(req: NotifyRequest):
             scam_type=req.scam_type,
             risk_score=req.risk_score,
             is_escalation=req.is_escalation,
+            bypass_cooldown=req.bypass_cooldown,
         )
         results.append({
             "guardian_email": guardian.email[:3] + "***",  # Mask for response privacy

@@ -209,22 +209,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (!confirmed) return; // User clicked Cancel — stay on warning page
 
-      // Add to whitelist so this URL is not blocked again this session
-      try {
-        const storageResult = await new Promise(res =>
-          chrome.storage.local.get(['whitelist'], res)
-        );
-        const whitelist = storageResult.whitelist || [];
-        if (!whitelist.includes(destination)) {
-          whitelist.push(destination);
-          await new Promise(res => chrome.storage.local.set({ whitelist }, res));
-        }
-      } catch (e) {
-        console.warn('[ScamDefy] Could not update whitelist:', e);
-      }
-
-      // Navigate to the original URL
-      window.location.replace(destination);
+      // Notify background script to whitelist and navigate
+      // This is the reliable way to bypass a block in Manifest V3
+      chrome.runtime.sendMessage({
+        type: 'PROCEED_ANYWAY',
+        payload: { url: destination }
+      });
     });
   }
 

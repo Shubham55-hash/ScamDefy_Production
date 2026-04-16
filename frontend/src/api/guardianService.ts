@@ -10,6 +10,7 @@ export interface NotifyPayload {
   risk_score: number;
   user_name?: string;
   is_escalation?: boolean;
+  bypass_cooldown?: boolean;
 }
 
 export interface NotifyResult {
@@ -25,7 +26,7 @@ export interface NotifyResult {
 }
 
 export async function notifyGuardians(payload: NotifyPayload): Promise<NotifyResult> {
-  const res = await apiClient.post<NotifyResult>('/guardian/notify', payload);
+  const res = await apiClient.post<NotifyResult>('/api/guardian/notify', payload);
   return res.data;
 }
 
@@ -37,6 +38,7 @@ export function buildNotifyPayload(
   riskScore: number,
   userName: string,
   isEscalation = false,
+  bypassCooldown = false,
 ): NotifyPayload {
   return {
     guardians: guardians.map(g => ({ name: g.name, email: g.email })),
@@ -45,5 +47,6 @@ export function buildNotifyPayload(
     risk_score: riskScore,
     user_name: userName || 'A ScamDefy user',
     is_escalation: isEscalation,
+    bypass_cooldown: bypassCooldown,
   };
 }
