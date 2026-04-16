@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import type { VoiceResult } from '../types';
 import { analyzeVoice } from '../api/voiceService';
 import { useAppStore } from '../store/appStore';
+import { useGuardianAlert } from './useGuardianAlert';
 import { logThreat, voiceResultToThreat } from '../utils/threatLogger';
 
 // Buffer duration in ms — progress bar fills over this period before result shows
@@ -14,6 +15,7 @@ export function useVoiceAnalysis() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const { addToast } = useAppStore();
+  const { checkAndAlert } = useGuardianAlert();
 
   // Ref to hold the interval so we can clear it from anywhere
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -51,6 +53,9 @@ export function useVoiceAnalysis() {
       if (data.verdict === 'SYNTHETIC') {
         const reason = data.reason ? ` - ${data.reason}` : '';
         addToast('error', `🤖 AI voice detected${reason} (${data.confidence_pct}% confidence)`);
+        
+        // Trigger Guardian alert for AI Voice scam
+        checkAndAlert('VOICE_SCAN', data.reason || 'AI Voice Fraud', Math.round(data.confidence_pct));
       } else if (data.verdict === 'REAL') {
         addToast('success', `✓ Voice appears real — ${data.confidence_pct}% confidence`);
       } else {

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # In-memory rate limit: { guardian_email: last_sent_unix_timestamp }
 _rate_limit: Dict[str, float] = {}
-COOLDOWN_SECONDS = 1800  # 30 minutes
+COOLDOWN_SECONDS = 0      # Disabling rate limit by request
 
 
 def _can_notify(email: str) -> bool:

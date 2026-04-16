@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import type { LiveVerdictEntry } from '../types';
 import { analyzeVoice } from '../api/voiceService';
 import { useAppStore } from '../store/appStore';
+import { useGuardianAlert } from './useGuardianAlert';
 
 export type LiveState = 'idle' | 'requesting' | 'recording' | 'stopping' | 'error';
 
@@ -102,6 +103,7 @@ export function useLiveMonitor() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunkCountRef = useRef(0);
   const { addToast } = useAppStore();
+  const { checkAndAlert } = useGuardianAlert();
 
   const handleChunk = useCallback(async (blob: Blob, chunkNum: number) => {
     // Ignore tiny/empty blobs — 6s of audio at 128kbps opus should be >> 5KB
@@ -142,6 +144,9 @@ export function useLiveMonitor() {
       setVerdicts(prev => [entry, ...prev]); // newest first
       if (result.verdict === 'SYNTHETIC') {
         addToast('error', `🤖 AI voice detected in live stream — ${result.confidence_pct.toFixed(1)}% confidence`);
+        
+        // Notify Guardian of live AI deepfake threat
+        checkAndAlert('VOICE_SCAN', result.reason || 'AI Deepfake Call', Math.round(result.confidence_pct));
       } else if (result.verdict === 'REAL') {
         addToast('success', `✅ Chunk #${chunkNum} is real — ${result.confidence_pct.toFixed(1)}%`);
       }

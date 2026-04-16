@@ -28,12 +28,10 @@ function GlassCard({ children, className = '' }: { children: React.ReactNode; cl
 
 interface GuardianCardProps {
   guardian: Guardian;
-  isCoolddown: boolean;
-  cooldownMins: number;
   onRemove: (id: string) => void;
 }
 
-function GuardianCard({ guardian, isCoolddown, cooldownMins, onRemove }: GuardianCardProps) {
+function GuardianCard({ guardian, onRemove }: GuardianCardProps) {
   const [confirming, setConfirming] = useState(false);
 
   const initials = guardian.name
@@ -65,15 +63,9 @@ function GuardianCard({ guardian, isCoolddown, cooldownMins, onRemove }: Guardia
         <p className="text-sm font-semibold text-white truncate">{guardian.name}</p>
         <p className="text-[11px] font-mono text-white/40 truncate">{guardian.email}</p>
         <div className="flex items-center gap-2 mt-1">
-          {isCoolddown ? (
-            <span className="text-[9px] font-mono uppercase tracking-wider text-amber-400/70">
-              ⏱ Alert cooldown: {cooldownMins}m remaining
-            </span>
-          ) : (
-            <span className="text-[9px] font-mono uppercase tracking-wider text-emerald-400/70">
-              ● Ready to alert
-            </span>
-          )}
+          <span className="text-[9px] font-mono uppercase tracking-wider text-emerald-400/70">
+            ● Immediate Alerts Enabled
+          </span>
           <span className="text-[9px] font-mono text-white/20">· Added {added}</span>
         </div>
       </div>
@@ -219,9 +211,9 @@ function ThresholdSlider({
   onChange: (v: number) => void;
 }) {
   const ticks = [
-    { val: 65, label: 'Sensitive', desc: '≥ 65% risk', color: '#f97316' },
-    { val: 75, label: 'Balanced', desc: '≥ 75% risk', color: '#00f2ff' },
-    { val: 85, label: 'Critical only', desc: '≥ 85% risk', color: '#a78bfa' },
+    { val: 30, label: 'Sensitive', desc: '≥ 30% risk', color: '#f97316' },
+    { val: 50, label: 'Balanced', desc: '≥ 50% risk', color: '#00f2ff' },
+    { val: 75, label: 'Critical only', desc: '≥ 75% risk', color: '#a78bfa' },
   ];
 
   return (
@@ -273,18 +265,11 @@ export function SafetyCircle({ onBack }: SafetyCircleProps) {
     toggle,
     addGuardian,
     removeGuardian,
-    canNotify,
     setThreshold,
     setUserName,
     update,
   } = useSafetyCircle();
   const { addToast } = useAppStore();
-
-  const cooldownMins = (email: string) => {
-    const last = settings.lastNotified[email.toLowerCase()] ?? 0;
-    const remaining = 1800000 - (Date.now() - last);
-    return Math.ceil(remaining / 60000);
-  };
 
   const handleToggle = () => {
     const next = !settings.enabled;
@@ -433,8 +418,6 @@ export function SafetyCircle({ onBack }: SafetyCircleProps) {
               <GuardianCard
                 key={g.id}
                 guardian={g}
-                isCoolddown={!canNotify(g.email)}
-                cooldownMins={cooldownMins(g.email)}
                 onRemove={handleRemoveGuardian}
               />
             ))}
@@ -582,7 +565,7 @@ export function SafetyCircle({ onBack }: SafetyCircleProps) {
             { icon: '✓', label: 'What is sent to guardians', value: 'Risk level, scam category, your display name (if enabled), timestamp', ok: true },
             { icon: '✕', label: 'What is NEVER shared', value: 'Personal messages, URLs, OTPs, passwords, or any scan payload', ok: false },
             { icon: '✓', label: 'Guardian data storage', value: 'Stored only on your device (localStorage). Never uploaded to our servers.', ok: true },
-            { icon: '✓', label: 'Rate limiting', value: '1 alert per guardian per 30 minutes to prevent alert fatigue.', ok: true },
+            { icon: '✓', label: 'Real-time alerts', value: 'Instant notification for every detected threat above your threshold.', ok: true },
             { icon: '✓', label: 'You are in control', value: 'Disable Safety Circle or remove guardians at any time, instantly.', ok: true },
           ].map(({ icon, label, value, ok }) => (
             <div key={label} className="flex gap-3">

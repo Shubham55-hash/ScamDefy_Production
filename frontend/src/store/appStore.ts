@@ -1,7 +1,33 @@
 import { create } from 'zustand';
-import type { ScanResult, ThreatEntry, HealthStatus } from '../types';
+import type { ScanResult, ThreatEntry, HealthStatus, SafetyCircleSettings } from '../types';
 
 interface Toast { id: string; type: string; message: string; }
+
+const SC_STORAGE_KEY = 'scamdefy_safety_circle';
+const SC_DEFAULTS: SafetyCircleSettings = {
+  enabled: false,
+  guardians: [],
+  threshold: 75,
+  notifyOnEscalation: true,
+  shareUserName: false,
+  userName: '',
+  lastNotified: {},
+};
+
+function loadSC(): SafetyCircleSettings {
+  try {
+    const raw = localStorage.getItem(SC_STORAGE_KEY);
+    return raw ? { ...SC_DEFAULTS, ...JSON.parse(raw) } : SC_DEFAULTS;
+  } catch {
+    return SC_DEFAULTS;
+  }
+}
+
+function persistSC(settings: SafetyCircleSettings): void {
+  try {
+    localStorage.setItem(SC_STORAGE_KEY, JSON.stringify(settings));
+  } catch {}
+}
 
 interface AppState {
   health: HealthStatus | null;
@@ -16,6 +42,10 @@ interface AppState {
   toasts: Toast[];
   addToast: (type: string, message: string) => void;
   removeToast: (id: string) => void;
+  
+  // Safety Circle
+  scSettings: SafetyCircleSettings;
+  scUpdate: (patch: Partial<SafetyCircleSettings>) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -39,4 +69,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeToast: (id) => set(state => ({
     toasts: state.toasts.filter(t => t.id !== id)
   })),
+
+  // Safety Circle
+  scSettings: loadSC(),
+  scUpdate: (patch) => {
+    const next = { ...get().scSettings, ...patch };
+    set({ scSettings: next });
+    persistSC(next);
+  },
 }));

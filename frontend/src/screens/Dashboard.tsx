@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useUrlScan } from '../hooks/useUrlScan';
+import { useGuardianAlert } from '../hooks/useGuardianAlert';
 import { useAppStore } from '../store/appStore';
 import { getHealth, getStats } from '../api/threatService';
 import { UrlInput } from '../components/scanner/UrlInput';
@@ -142,6 +143,13 @@ export function Dashboard() {
   const { result, loading: scanLoading, error: scanError, scan } = useUrlScan();
   const { health, totalBlocked, todayBlocked, setStats, setHealth } = useAppStore();
   const [statsLoading, setStatsLoading] = useState(true);
+  const { checkAndAlert } = useGuardianAlert();
+
+  // Auto-alert guardians if a high-risk threat is detected on the home screen
+  useEffect(() => {
+    if (!result) return;
+    checkAndAlert('URL_SCAN', result.scam_type || 'Suspicious URL', Math.round(result.score));
+  }, [result, checkAndAlert]);
 
   useEffect(() => {
     let cancelled = false;

@@ -99,3 +99,25 @@ export interface MessageAnalysis {
   recommendation: string;
   user_alert: string;
 }
+
+export interface Guardian {
+  id: string;
+  name: string;
+  email: string;
+  addedAt: string; // ISO timestamp
+}
+
+export interface SafetyCircleSettings {
+  enabled: boolean;
+  guardians: Guardian[];
+  /** Risk score threshold (65–90) above which guardians are notified */
+  threshold: number;
+  /** Also notify guardians when user proceeds through a critical warning */
+  notifyOnEscalation: boolean;
+  /** Privacy: share user's display name in alert (vs. "A ScamDefy user") */
+  shareUserName: boolean;
+  /** user's display name for alerts */
+  userName: string;
+  /** Per-guardian email → last notified unix ms */
+  lastNotified: Record<string, number>;
+}

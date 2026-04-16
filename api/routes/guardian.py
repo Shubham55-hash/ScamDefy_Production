@@ -56,9 +56,9 @@ class NotifyRequest(BaseModel):
     def validate_risk_score(cls, v: int) -> int:
         if not (0 <= v <= 100):
             raise ValueError("risk_score must be between 0 and 100")
-        # Safety: only allow notifications for genuinely high-risk events
-        if v < 65:
-            raise ValueError("risk_score too low to trigger guardian alert (minimum 65)")
+        # Safety: only allow notifications for genuinely suspicious events (default 30)
+        if v < 30:
+            raise ValueError("risk_score too low to trigger guardian alert (minimum 30)")
         return v
 
     @field_validator("user_name")
