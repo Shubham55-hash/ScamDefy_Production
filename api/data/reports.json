@@ -1,0 +1,28 @@
+{
+  "testsafebrowsing.appspot.com": [
+    {
+      "id": "f6468ba4",
+      "type": "false_positive",
+      "reason": "",
+      "timestamp": 1776360325.4072201
+    },
+    {
+      "id": "07d27c9f",
+      "type": "scam",
+      "reason": "",
+      "timestamp": 1776360453.7606847
+    },
+    {
+      "id": "00b70431",
+      "type": "scam",
+      "reason": "",
+      "timestamp": 1776360561.801161
+    },
+    {
+      "id": "bc66fd5b",
+      "type": "scam",
+      "reason": "",
+      "timestamp": 1776360640.9904394
+    }
+  ]
+}

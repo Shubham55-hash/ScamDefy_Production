@@ -37,6 +37,16 @@ export function useUrlScan() {
       const data = await scanUrl(url.trim());
 
       if (intervalRef.current) clearInterval(intervalRef.current);
+
+      // Backend may return { error: true, message: '...' } for invalid inputs
+      if ((data as any).error) {
+        setProgress(0);
+        const appError: AppError = { message: (data as any).message || 'Invalid input.', retryable: false };
+        setError(appError);
+        setLoading(false);
+        return;
+      }
+
       setProgress(100);
 
       // Brief pause at 100% before showing result.

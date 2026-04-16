@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import type { ScanResult } from '../../types';
 import { RiskBadge } from '../ui/RiskBadge';
 import { ScoreGauge } from '../ui/ScoreGauge';
+import { apiClient } from '../../api/client';
 
 interface Props { result: ScanResult }
 
@@ -11,8 +13,35 @@ const VERDICT_COLOR: Record<string, string> = {
   BLOCKED: '#ef4444',
 };
 
+
 export function ScanResultCard({ result }: Props) {
   const color = VERDICT_COLOR[result.verdict] ?? '#00f2ff';
+  const isScam = result.verdict === 'BLOCKED' || result.verdict === 'DANGER';
+
+  // Community report state
+  const [communityReports, setCommunityReports] = useState(
+    result.community_reports ?? { scam_reports: 0, false_positive_reports: 0, total_reports: 0 }
+  );
+  const [reportStatus, setReportStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [reportedType, setReportedType] = useState<'scam' | 'false_positive' | null>(null);
+
+  const handleReport = async (type: 'scam' | 'false_positive') => {
+    if (reportStatus !== 'idle') return;
+    setReportStatus('loading');
+    try {
+      const resp = await apiClient.post('/api/report', {
+        url: result.url, reason: type, notes: '',
+      });
+      setCommunityReports(resp.data.community_reports);
+      setReportedType(type);
+      setReportStatus('done');
+    } catch {
+      setReportStatus('idle');
+    }
+  };
+
+  const scamCount = communityReports.scam_reports;
+  const fpCount   = communityReports.false_positive_reports;
 
   return (
     <div
@@ -69,6 +98,98 @@ export function ScanResultCard({ result }: Props) {
           <p className="text-xs text-white/60 leading-relaxed">{result.explanation}</p>
         </div>
       )}
+
+      {/* Community Reports Section */}
+      <div
+        className="rounded-xl p-4 mb-5"
+        style={{
+          background: scamCount > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(255,255,255,0.03)',
+          border: scamCount > 0 ? '1px solid rgba(239,68,68,0.2)' : '1px solid rgba(255,255,255,0.06)',
+        }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[9px] font-mono uppercase tracking-widest text-white/30">Community Intel</p>
+          {scamCount > 0 && (
+            <span
+              className="text-[9px] font-mono px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+            >
+              ⚠ {scamCount} USER{scamCount !== 1 ? 'S' : ''} REPORTED SCAM
+            </span>
+          )}
+          {scamCount === 0 && fpCount === 0 && (
+            <span className="text-[9px] font-mono text-white/20">No reports yet</span>
+          )}
+        </div>
+
+        {/* Report counts bar */}
+        {(scamCount > 0 || fpCount > 0) && (
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${(scamCount / Math.max(scamCount + fpCount, 1)) * 100}%`,
+                  background: 'linear-gradient(90deg, #ef4444, #f97316)',
+                }}
+              />
+            </div>
+            <span className="text-[9px] font-mono text-white/30 shrink-0">
+              {scamCount} scam · {fpCount} safe
+            </span>
+          </div>
+        )}
+
+        {/* Report Buttons */}
+        <div className="flex gap-2">
+          {reportStatus === 'done' ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono"
+                style={{ color: reportedType === 'scam' ? '#ef4444' : '#22c55e' }}>
+                ✓ {reportedType === 'scam' ? 'Reported as scam' : 'Reported as safe'} — thank you!
+              </span>
+            </div>
+          ) : (
+            <>
+              {/* Show "Report as scam" only if currently SAFE/CAUTION, or always */}
+              <button
+                id={`btn-report-scam-${result.id}`}
+                onClick={() => handleReport('scam')}
+                disabled={reportStatus === 'loading'}
+                className="text-[10px] font-mono px-3 py-1.5 rounded-lg transition-all duration-200 disabled:opacity-40"
+                style={{
+                  background: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.25)',
+                  color: '#ef4444',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.2)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.1)')}
+              >
+                {reportStatus === 'loading' ? '…' : '🚨 Report as Scam'}
+              </button>
+
+              {/* "Report false positive" only shown if verdict is DANGER/BLOCKED */}
+              {isScam && (
+                <button
+                  id={`btn-report-fp-${result.id}`}
+                  onClick={() => handleReport('false_positive')}
+                  disabled={reportStatus === 'loading'}
+                  className="text-[10px] font-mono px-3 py-1.5 rounded-lg transition-all duration-200 disabled:opacity-40"
+                  style={{
+                    background: 'rgba(34,197,94,0.08)',
+                    border: '1px solid rgba(34,197,94,0.2)',
+                    color: '#86efac',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.18)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.08)')}
+                >
+                  ✓ Report as Safe
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Signals */}
       {result.signals?.length > 0 && (

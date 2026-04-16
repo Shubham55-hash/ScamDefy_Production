@@ -39,6 +39,11 @@ export interface ScanResult {
   scan_time_ms: number;
   timestamp: string;
   domain_age?: { age_days: number | null; registered_on: string | null; source: string };
+  community_reports?: {
+    scam_reports: number;
+    false_positive_reports: number;
+    total_reports: number;
+  };
 }
 
 export interface VoiceResult {

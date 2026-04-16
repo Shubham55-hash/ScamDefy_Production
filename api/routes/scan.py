@@ -16,6 +16,7 @@ from services.risk_service import score as calculate_score
 from services.ai_service import generate_explanation, analyze_message_ai
 from services.domain_age_service import get_domain_age
 from utils.threat_logger import log_threat
+from utils.report_manager import add_report, get_report_counts
 
 
 def normalize_url(url: str) -> str:
@@ -27,6 +28,31 @@ def normalize_url(url: str) -> str:
     if "#" in url:
         url = url.split("#")[0]
     return url
+
+
+import urllib.parse as _urlparse
+
+def validate_url_input(raw: str) -> Optional[str]:
+    """
+    Returns an error message string if the input is not a valid URL,
+    or None if it is valid.
+    """
+    trimmed = raw.strip()
+    if not trimmed:
+        return "URL cannot be empty."
+    # Reject inputs with spaces — they're sentences/messages, not URLs
+    if _re.search(r'\s', trimmed):
+        return "Invalid URL: input contains spaces. Please use the Message Scanner for text."
+    # Add scheme for parsing if missing
+    with_scheme = trimmed if _re.match(r'^https?://', trimmed, _re.IGNORECASE) else 'http://' + trimmed
+    try:
+        parsed = _urlparse.urlparse(with_scheme)
+        host = parsed.hostname or ''
+        if not host or '.' not in host:
+            return f"'{trimmed}' is not a valid URL — must contain a domain (e.g. google.com)."
+    except Exception:
+        return f"'{trimmed}' could not be parsed as a URL."
+    return None
 
 
 router = APIRouter()
@@ -70,12 +96,18 @@ def _score_to_risk_level(score: float) -> str:
 
 @router.post("/scan")
 async def scan_url_post(req: ScanRequest, bypass_cache: bool = False):
+    err = validate_url_input(req.url)
+    if err:
+        return {"error": True, "message": err, "url": req.url}
     normalized = normalize_url(req.url)
     return await run_scan_pipeline(normalized, bypass_cache, gsb_key=req.gsb_key, gemini_key=req.gemini_key)
 
 
 @router.get("/scan")
 async def scan_url_get(url: str, bypass_cache: bool = False, gsb_key: str = None, gemini_key: str = None):
+    err = validate_url_input(url)
+    if err:
+        return {"error": True, "message": err, "url": url}
     normalized = normalize_url(url)
     return await run_scan_pipeline(normalized, bypass_cache, gsb_key, gemini_key)
 
@@ -87,6 +119,8 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str =
         result = dict(scan_cache[url])
         result["cached"] = True
         result["scan_time_ms"] = int((time.time() - start_time) * 1000)
+        # Always get fresh community reports even for cached results
+        result["community_reports"] = get_report_counts(url)
         return result
 
     if "scamdefy-test-block.com" in url:
@@ -209,6 +243,7 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str =
         "cached":       False,
         "scan_time_ms": int((time.time() - start_time) * 1000),
         "timestamp":    datetime.now(timezone.utc).isoformat(),
+        "community_reports": get_report_counts(url),
     }
 
     scan_cache[url] = response_data
@@ -342,14 +377,21 @@ async def analyze_message(req: MessageRequest):
 
 class ReportRequest(BaseModel):
     url: str
-    reason: str
+    reason: str         # 'scam' | 'false_positive'
     notes: str = ""
 
 
 @router.post("/report")
 async def report_url(req: ReportRequest):
-    import logging as _log
-    _log.getLogger(__name__).info(
-        f"[ScamDefy] Report — url={req.url!r} reason={req.reason!r} notes={req.notes!r}"
-    )
-    return {"status": "received", "message": "Thank you for your report."}
+    counts = add_report(req.url, req.reason, req.notes)
+    return {
+        "status": "received",
+        "message": "Thank you for your report.",
+        "community_reports": counts,
+    }
+
+
+@router.get("/report-counts")
+async def get_report_counts_endpoint(url: str):
+    """Fetch current community report counts for a URL without scanning."""
+    return get_report_counts(url)
