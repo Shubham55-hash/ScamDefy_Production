@@ -104,9 +104,10 @@ async def analyze_message_ai(text: str, api_key: str = None) -> dict:
             f"RULES:\n"
             f"1. If content is just a word or short phrase (e.g. 'otp', 'login', 'bank') without context, verdict MUST be SAFE.\n"
             f"2. Only flag SUSPICIOUS if there is a 'Call to Action' (e.g. asking the user to share a code, click a link, or pay money).\n"
-            f"3. Return ONLY a JSON object:\n"
+            f"3. Generate a 'recommendation' based on the scam type (e.g. if bank-related, suggest verifying via official bank app; if winnings-related, suggest ignoring).\n"
+            f"4. Return ONLY a JSON object:\n"
             f'{{"score": number(0-100), "verdict": "SAFE"|"SUSPICIOUS"|"DANGER", '
-            f'"category": "string", "explanation": "string", '
+            f'"category": "string", "explanation": "string", "recommendation": "string", '
             f'"triggered_signals": ["name1", "name2"]}}\n\n'
             f"MESSAGE CONTENT:\n{text}"
         )
@@ -115,7 +116,7 @@ async def analyze_message_ai(text: str, api_key: str = None) -> dict:
             model=model_id,
             contents=prompt,
             config=types.GenerateContentConfig(
-                max_output_tokens=300,
+                max_output_tokens=350,
                 temperature=0.1,
                 response_mime_type="application/json"
             ),
@@ -128,6 +129,7 @@ async def analyze_message_ai(text: str, api_key: str = None) -> dict:
                 "verdict": data.get("verdict", "SAFE"),
                 "scam_category": data.get("category", "General Phishing"),
                 "explanation": data.get("explanation", ""),
+                "recommendation": data.get("recommendation", "Verify sender identity and avoid clicking unknown links."),
                 "signals": data.get("triggered_signals", [])
             }
         return fallback

@@ -65,6 +65,18 @@
         </div>
         <p id="aiExplanation" class="explanation"></p>
         <div id="riskPills" class="risk-pills"></div>
+
+        <!-- Community Intel Feed -->
+        <div id="communityIntel" class="community-intel" style="display:none;">
+          <div class="intel-header">
+            <span class="intel-label">COMMUNITY INTEL</span>
+            <span id="communityCounts" class="intel-stats">--</span>
+          </div>
+          <div class="intel-actions">
+            <button id="btn-report-scam" class="intel-btn scam" title="Report this site as a scam">Report Scam</button>
+            <button id="btn-report-safe" class="intel-btn safe" title="Mark this site as false positive">Mark Safe</button>
+          </div>
+        </div>
       </div>
 
       <div class="card manual-scan">
@@ -106,6 +118,18 @@
 
     <!-- SETTINGS VIEW -->
     <section id="view-settings" style="display:none;">
+      
+      <!-- Whitelist Management (Featured at Top) -->
+      <div id="card-whitelist" class="card whitelist-card">
+        <h3>◈ Whitelisted Sites</h3>
+        <p class="explanation" style="margin-bottom:8px; font-size:10px; color:rgba(0,242,255,0.4);">
+          Manage domains where you have manually bypassed blocks.
+        </p>
+        <div id="whitelist-entries" class="whitelist-list">
+          <div class="empty-list-note">No sites whitelisted yet.</div>
+        </div>
+      </div>
+
       <div class="card">
         <h3>◈ Defense Protocol</h3>
         <div class="protocol-status">

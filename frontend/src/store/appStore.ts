@@ -29,6 +29,13 @@ function persistSC(settings: SafetyCircleSettings): void {
   } catch {}
 }
 
+interface AuthUser {
+  email: string;
+  name: string;
+  role: 'USER' | 'ADMIN';
+  token: string;
+}
+
 interface AppState {
   health: HealthStatus | null;
   setHealth: (h: HealthStatus) => void;
@@ -43,6 +50,11 @@ interface AppState {
   addToast: (type: string, message: string) => void;
   removeToast: (id: string) => void;
   
+  // Auth
+  user: AuthUser | null;
+  authenticate: (user: AuthUser) => void;
+  logout: () => void;
+
   // Safety Circle
   scSettings: SafetyCircleSettings;
   scUpdate: (patch: Partial<SafetyCircleSettings>) => void;
@@ -69,6 +81,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeToast: (id) => set(state => ({
     toasts: state.toasts.filter(t => t.id !== id)
   })),
+
+  // Auth
+  user: (() => {
+    try {
+      const raw = localStorage.getItem('sd_auth');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  })(),
+  authenticate: (user) => {
+    set({ user });
+    localStorage.setItem('sd_auth', JSON.stringify(user));
+  },
+  logout: () => {
+    set({ user: null });
+    localStorage.removeItem('sd_auth');
+  },
 
   // Safety Circle
   scSettings: loadSC(),

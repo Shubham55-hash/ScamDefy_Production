@@ -70,7 +70,7 @@ function OrbCanvas({ score, verdict }: { score: number | null; verdict: string |
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
   }, [orbColor]);
 
-  const displayScore = score !== null ? score.toFixed(2) : '0.00';
+  const displayScore = score !== null ? score.toFixed(0) : '0';
 
   return (
     <div className="relative w-72 h-72 md:w-[380px] md:h-[380px] flex items-center justify-center mx-auto">
@@ -129,16 +129,6 @@ function OrbCanvas({ score, verdict }: { score: number | null; verdict: string |
     </div>
   );
 }
-
-// ── Module health cards ───────────────────────────────────────────────────────
-const MODULE_ICONS: Record<string, string> = {
-  gsb_service: '🛡️',
-  urlhaus_service: '🕷️',
-  voice_cnn: '🎙️',
-  url_expander: '🔗',
-  database: '🗄️',
-  gemini: '🤖'
-};
 
 // ── Dashboard screen ──────────────────────────────────────────────────────────
 export function Dashboard() {

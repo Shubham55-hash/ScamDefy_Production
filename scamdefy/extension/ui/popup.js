@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPayloadAnalyzer();
   setupVoiceUpload();
   setupSettings();
+  setupCommunityIntel();
   
   // Fully reactive settings sync
   chrome.storage.onChanged.addListener((changes) => {
@@ -35,6 +36,7 @@ function setupNavigation() {
       const section = document.getElementById(navMap[view]);
       if (section) section.style.display = 'block';
       if (view === 'modules') loadSystemHealth();
+      if (view === 'settings') renderWhitelist();
     });
   });
 }
@@ -73,8 +75,9 @@ async function updateColors(score, verdict) {
   badge.style.background  = bg;
   badge.textContent       = effectiveVerdict || 'UNKNOWN';
 
-  const sv = document.getElementById('scoreValue');
-  if (sv && score !== null && score !== '--') sv.textContent = score;
+  if (sv && score !== null && score !== '--') {
+    sv.textContent = Math.round(parseFloat(score));
+  }
 }
 
 function renderRiskPills(data) {
@@ -211,6 +214,9 @@ async function loadCurrentPageStatus(force = false) {
           if (explanationEl) explanationEl.innerHTML = buildExplanationHTML(d);
           renderRiskPills(d);
           chrome.storage.local.set({ [`scan_${currentUrl}`]: d });
+          
+          // Fetch community intel
+          loadCommunityIntel(currentUrl);
         } else {
           if (explanationEl) explanationEl.textContent = "Result unavailable. Ensure Backend is running.";
           updateColors('--', 'ERROR');
@@ -577,6 +583,152 @@ function setupSettings() {
             loadCurrentPageStatus();
           });
         });
+    });
+  });
+}
+
+/** ─── COMMUNITY INTEL LOGIC ─────────────────────────────────── **/
+
+function setupCommunityIntel() {
+  const btnScam = document.getElementById('btn-report-scam');
+  const btnSafe = document.getElementById('btn-report-safe');
+
+  btnScam?.addEventListener('click', () => submitReport('scam'));
+  btnSafe?.addEventListener('click', () => submitReport('false_positive'));
+}
+
+async function loadCommunityIntel(url) {
+  const intelEl = document.getElementById('communityIntel');
+  const countsEl = document.getElementById('communityCounts');
+  if (!intelEl || !countsEl) return;
+
+  try {
+    const res = await new Promise(resolve => chrome.storage.local.get(['backendUrl'], resolve));
+    const backendUrl = (res.backendUrl || 'http://localhost:8000').replace(/\/$/, '');
+    
+    const response = await fetch(`${backendUrl}/api/report-counts?url=${encodeURIComponent(url)}`);
+    const data = await response.json();
+    
+    updateIntelUI(data);
+    intelEl.style.display = 'block';
+  } catch (err) {
+    console.warn('[ScamDefy] Failed to fetch community intel:', err);
+    intelEl.style.display = 'none';
+  }
+}
+
+async function submitReport(type) {
+  const btnScam = document.getElementById('btn-report-scam');
+  const btnSafe = document.getElementById('btn-report-safe');
+  const urlEl   = document.getElementById('currentPageUrl');
+  const countsEl = document.getElementById('communityCounts');
+  
+  const url = urlEl?.textContent;
+  if (!url || url.includes('Initializing') || url.includes('Internal page')) return;
+
+  // Visual feedback
+  if (btnScam) btnScam.disabled = true;
+  if (btnSafe) btnSafe.disabled = true;
+  const originalCounts = countsEl.textContent;
+  countsEl.textContent = 'REPORTING...';
+
+  try {
+    const res = await new Promise(resolve => chrome.storage.local.get(['backendUrl'], resolve));
+    const backendUrl = (res.backendUrl || 'http://localhost:8000').replace(/\/$/, '');
+
+    const response = await fetch(`${backendUrl}/api/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, reason: type, notes: 'Reported via Chrome Extension' })
+    });
+
+    const data = await response.json();
+    updateIntelUI(data.community_reports);
+    countsEl.style.color = '#22c55e';
+    setTimeout(() => { countsEl.style.color = ''; }, 2000);
+
+  } catch (err) {
+    console.error('[ScamDefy] Report submission failed:', err);
+    countsEl.textContent = 'FAILED';
+    countsEl.style.color = 'var(--red)';
+    setTimeout(() => { 
+        countsEl.textContent = originalCounts;
+        countsEl.style.color = '';
+    }, 2000);
+  } finally {
+    if (btnScam) btnScam.disabled = false;
+    if (btnSafe) btnSafe.disabled = false;
+  }
+}
+
+function updateIntelUI(counts) {
+  const countsEl = document.getElementById('communityCounts');
+  if (!countsEl) return;
+
+  const { scam = 0, false_positive = 0 } = counts;
+  if (scam === 0 && false_positive === 0) {
+    countsEl.textContent = 'No reports yet';
+    return;
+  }
+
+  const parts = [];
+  if (scam > 0) parts.push(`⚠ ${scam} ${scam === 1 ? 'user' : 'users'} reported scam`);
+  if (false_positive > 0) parts.push(`✓ ${false_positive} reported safe`);
+  
+  countsEl.textContent = parts.join(' · ');
+}
+
+/** ─── WHITELIST MANAGEMENT LOGIC ───────────────────────────── **/
+
+async function renderWhitelist() {
+  const container = document.getElementById('whitelist-entries');
+  if (!container) return;
+
+  chrome.storage.local.get(['whitelist'], (res) => {
+    const list = res.whitelist || [];
+    
+    if (list.length === 0) {
+      container.innerHTML = '<div class="empty-list-note">No whitelisted sites found.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    // show newest first
+    const sorted = [...list].reverse();
+    
+    sorted.forEach(url => {
+      const entry = document.createElement('div');
+      entry.className = 'whitelist-entry';
+      
+      const urlText = url.length > 50 ? url.slice(0, 47) + '...' : url;
+      
+      entry.innerHTML = `
+        <div class="whitelist-url" title="${url}">${urlText}</div>
+        <button class="btn-revoke" data-url="${url}">Revoke</button>
+      `;
+
+      entry.querySelector('.btn-revoke').addEventListener('click', () => revokeWhitelist(url));
+      container.appendChild(entry);
+    });
+  });
+}
+
+async function revokeWhitelist(url) {
+  if (!confirm(`Are you sure you want to re-enable protection for:\n${url}?`)) return;
+
+  chrome.storage.local.get(['whitelist'], (res) => {
+    const list = res.whitelist || [];
+    const newList = list.filter(u => u !== url);
+    
+    // 1. Update permanent storage
+    chrome.storage.local.set({ whitelist: newList }, () => {
+      // 2. Notify background to clear session cache
+      chrome.runtime.sendMessage({ type: 'REVOKE_WHITELIST', payload: { url } }, () => {
+        // 3. Clear scan cache for this URL to force a fresh scan on next visit
+        chrome.storage.local.remove([`scan_${url}`], () => {
+          renderWhitelist();
+        });
+      });
     });
   });
 }

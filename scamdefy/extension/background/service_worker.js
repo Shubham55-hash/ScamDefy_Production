@@ -88,6 +88,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
+  if (message.type === 'REVOKE_WHITELIST') {
+    const { url } = message.payload;
+    if (url) sessionWhitelist.delete(url);
+    sendResponse({ success: true });
+    return true;
+  }
   handleMessage(message, sender)
     .then(sendResponse)
     .catch(err => sendResponse({ success: false, error: err.toString() }));

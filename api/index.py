@@ -6,7 +6,7 @@ import os
 # Load environment variables before importing routes/services
 load_dotenv()
 
-from routes import scan, voice, health, threats, guardian
+from routes import scan, voice, health, threats, guardian, auth
 import logging
 import threading
 import time
@@ -81,6 +81,7 @@ app.include_router(voice.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(threats.router, prefix="/api")
 app.include_router(guardian.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 @app.get("/api/antigravity/stats")
 def get_antigravity_stats():

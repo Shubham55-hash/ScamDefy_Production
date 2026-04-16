@@ -403,7 +403,7 @@ async def analyze_message(req: MessageRequest):
         "risk_score":        final_score,
         "scam_category":     scam_category,
         "signals_triggered": signals_triggered,
-        "recommendation":    "Verify sender identity and never click unexpected links or share sensitive codes.",
+        "recommendation":    ai_result.get("recommendation", "Verify sender identity and never click unexpected links or share sensitive codes."),
         "user_alert":        user_alert,
         "link_count":        len(found_urls)
     }

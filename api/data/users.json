@@ -1,0 +1,12 @@
+{
+  "admin@scamdefy.io": {
+    "password": "admin123",
+    "name": "Lead Developer",
+    "role": "ADMIN"
+  },
+  "user@scamdefy.io": {
+    "password": "user123",
+    "name": "Standard User",
+    "role": "USER"
+  }
+}

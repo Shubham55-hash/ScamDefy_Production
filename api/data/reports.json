@@ -37,6 +37,26 @@
       "type": "test",
       "reason": "antigravity",
       "timestamp": 1776361711.2594137
+    },
+    {
+      "id": "06f4490a",
+      "type": "test",
+      "reason": "antigravity",
+      "timestamp": 1776364153.9702396
+    }
+  ],
+  "google.com": [
+    {
+      "id": "bd359300",
+      "type": "scam",
+      "reason": "",
+      "timestamp": 1776363996.982783
+    },
+    {
+      "id": "0ad6797e",
+      "type": "scam",
+      "reason": "",
+      "timestamp": 1776364495.5988383
     }
   ]
 }
