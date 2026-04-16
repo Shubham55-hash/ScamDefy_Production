@@ -13,7 +13,7 @@ from services.gsb_service import check_url as check_gsb
 from services.urlhaus_service import check_url as check_urlhaus
 from services.domain_service import analyze as analyze_domain
 from services.risk_service import score as calculate_score
-from services.ai_service import generate_explanation
+from services.ai_service import generate_explanation, analyze_message_ai
 from services.domain_age_service import get_domain_age
 from utils.threat_logger import log_threat
 
@@ -242,75 +242,87 @@ async def explain_url(req: ExplainRequest):
 
 class MessageRequest(BaseModel):
     text: str
+    gemini_key: Optional[str] = None
 
 
 @router.post("/analyze-message")
 async def analyze_message(req: MessageRequest):
-    text_lower = req.text.strip().lower()
+    text = req.text.strip()
+    
+    # Quick Check: If input is too short or just a single word, it's not a message-based scam
+    words = text.split()
+    if len(text) < 5 or (len(words) == 1 and "." not in text):
+        return {
+            "scan_type":         "message",
+            "risk_level":        "SAFE",
+            "risk_score":        0.0,
+            "scam_category":     "Appears Legitimate",
+            "signals_triggered": [],
+            "recommendation":    "This input is too short to be a structured scam message.",
+            "user_alert":        "No scam signals detected in this short text.",
+            "link_count":        0
+        }
+    
+    # 1. Extract URLs from message
+    # Regex to find standard http/https links
+    url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
+    found_urls = _re.findall(url_pattern, text)
+    
+    link_results = []
+    if found_urls:
+        # Scan each found URL using the full pipeline
+        for raw_url in found_urls[:3]: # limit to first 3 links
+            url = raw_url if raw_url.startswith("http") else "http://" + raw_url
+            try:
+                res = await run_scan_pipeline(url, bypass_cache=False, gemini_key=req.gemini_key)
+                link_results.append(res)
+            except: continue
 
-    SCAM_SIGNALS = [
-        (r"kyc",                              "KYC Urgency",           35, "HIGH",     "Claims KYC verification is required — a common pretext to steal identity documents."),
-        (r"verif",                            "Verification Lure",     20, "MEDIUM",   "Requests identity verification — scammers use this to harvest personal data."),
-        (r"account.{0,20}block",              "Account Threat",        35, "HIGH",     "Threatens account suspension — a scare tactic to force immediate action without thinking."),
-        (r"click here",                       "Phishing CTA",          25, "HIGH",     "'Click here' link detected — a classic phishing redirect to a fake login page."),
-        (r"prize|won|winner",                 "Prize Scam",            35, "HIGH",     "Claims you've won a prize — you cannot win a contest you didn't enter."),
-        (r"lottery",                          "Lottery Scam",          35, "HIGH",     "References a lottery — unsolicited lottery wins are universally fraudulent."),
-        (r"\botp\b",                          "OTP Request",           45, "CRITICAL", "Requests your OTP — legitimate organizations will NEVER ask for one-time passwords."),
-        (r"\bpin\b",                          "PIN Request",           45, "CRITICAL", "Asks for a PIN — no real bank, government, or service needs your PIN via message."),
-        (r"password",                         "Credential Request",    40, "HIGH",     "Asks for your password — this is a definitive red flag of credential theft."),
-        (r"urgent|immediately",               "Urgency Tactic",        20, "MEDIUM",   "Uses urgency language — scammers create time pressure to prevent rational thinking."),
-        (r"congratulations",                  "Prize Lure",            20, "MEDIUM",   "Congratulatory message for an unexpected reward — a manipulation tactic."),
-        (r"\bfree\b",                         "Free Offer Lure",       10, "LOW",      "Offers something for free — used to lower your guard before requesting personal info."),
-        (r"bank|banking",                     "Bank Impersonation",    25, "MEDIUM",   "Mentions banking — likely impersonating your bank to steal account credentials."),
-        (r"refund",                           "Refund Scam",           25, "HIGH",     "Promises a refund — refund scams trick victims into sharing payment details."),
-        (r"suspend|blocked",                  "Suspension Threat",     30, "HIGH",     "Threatens suspension — designed to alarm you into handing over access credentials."),
-        (r"cvv|card number",                  "Card Data Request",     50, "CRITICAL", "Requests card/CVV number — no legitimate entity ever needs this via a message."),
-        (r"aadhaar|aadhar|pan card",          "Document Request",      30, "HIGH",     "Requests government ID (Aadhaar/PAN) — used for identity theft and financial fraud."),
-        (r"reset.{0,10}password",             "Password Reset Lure",   35, "HIGH",     "Prompts a password reset you didn't request — may be a phishing or account takeover attempt."),
-        (r"invest|profit|returns",            "Investment Scam",       30, "HIGH",     "Promotes investment returns — high-return promises are a hallmark of financial scams."),
-        (r"delivery.{0,15}fail",              "Delivery Scam",         25, "MEDIUM",   "Claims a failed delivery — designed to get you to click a link and enter personal details."),
-        (r"gift card|itunes|amazon card",     "Gift Card Scam",        40, "HIGH",     "Requests gift cards as payment — this is a well-known government/tech support scam method."),
-        (r"remote access|teamviewer|anydesk", "Remote Access Scam",    50, "CRITICAL", "Requests remote access to your device — gives scammers full control of your system."),
-    ]
+    # 2. Run AI Context Analysis on the text
+    ai_result = await analyze_message_ai(text, api_key=req.gemini_key)
+    
+    # 3. Decision Logic & Scoring
+    # Start with AI score as baseline
+    final_score = float(ai_result.get("score", 0))
+    risk_level = ai_result.get("verdict", "SAFE")
+    scam_category = ai_result.get("scam_category", "Social Engineering")
+    user_alert = ai_result.get("explanation", "No immediate scam signals detected.")
+    signals_triggered = [{"name": s, "points": 20, "severity": "MEDIUM"} for s in ai_result.get("signals", [])]
 
-    signals_triggered = []
-    total_score = 0
-    for pattern, name, points, severity, specific_reason in SCAM_SIGNALS:
-        if _re.search(pattern, text_lower):
-            signals_triggered.append({
-                "name": name,
-                "signal": pattern,
-                "points": points,
-                "severity": severity,
-                "reason": specific_reason,
-            })
-            total_score += points
-
-    total_score = min(total_score, 100)
-
-    # Build a specific, concatenated reason from all triggered signals
-    if signals_triggered:
-        reason_parts = [s["reason"] for s in signals_triggered[:4]]  # top 4 reasons max
-        user_alert = " | ".join(reason_parts)
+    # Overlay Link Results if a malicious link is found
+    malicious_link = next((l for l in link_results if l.get("score", 0) > 40), None)
+    
+    if malicious_link:
+        # If a link is bad, upgrade to DANGER/CRITICAL level (SCAM)
+        final_score = max(final_score, malicious_link["score"])
+        risk_level = "CRITICAL" if final_score >= 80 else "DANGER"
+        scam_category = f"Phishing / {malicious_link['scam_type']}"
+        user_alert = f"WARNING: Malicious link detected ({malicious_link['url']})! {malicious_link['explanation']}"
+        
+        # Add link signal
+        signals_triggered.append({
+            "name": "Malicious Link Detected",
+            "points": int(malicious_link["score"]),
+            "severity": "CRITICAL" if final_score >= 80 else "HIGH"
+        })
     else:
-        user_alert = "No scam signals detected."
+        # No bad links, use AI verdict but cap at SUSPICIOUS (not SCAM) per user request
+        if risk_level in ("DANGER", "CRITICAL", "SCAM"):
+             risk_level = "SUSPICIOUS"
+             if final_score > 60: final_score = 60 # Cap score for text-only
+    
+    # Map AI DANGER to app-specific risk levels if needed
+    if not malicious_link:
+        if risk_level == "DANGER": risk_level = "HIGH"
+        if risk_level == "CRITICAL": risk_level = "HIGH"
 
-    if total_score >= 70:
-        risk_level, scam_category = "CRITICAL", "Phishing / Social Engineering"
-    elif total_score >= 40:
-        risk_level, scam_category = "HIGH", "Suspicious Message"
-    elif total_score >= 15:
-        risk_level, scam_category = "SUSPICIOUS", "Potentially Suspicious"
-    else:
-        risk_level, scam_category = "SAFE", "Appears Legitimate"
-
-    if total_score >= 15:
-        # Log to Surveillance if suspicious/high/critical
+    # Log to surveillance if significant
+    if final_score >= 15:
         log_threat(
             id=str(uuid.uuid4()),
-            url=f"Message Payload (Snippet: {req.text[:30]}...)",
+            url=f"Msg: {text[:40]}...",
             risk_level=risk_level,
-            score=float(total_score),
+            score=float(final_score),
             scam_type=scam_category,
             explanation=user_alert,
             signals=[s["name"] for s in signals_triggered]
@@ -319,11 +331,12 @@ async def analyze_message(req: MessageRequest):
     return {
         "scan_type":         "message",
         "risk_level":        risk_level,
-        "risk_score":        total_score,
+        "risk_score":        final_score,
         "scam_category":     scam_category,
         "signals_triggered": signals_triggered,
-        "recommendation":    "Never share OTPs, passwords, or banking details in response to unsolicited messages.",
+        "recommendation":    "Verify sender identity and never click unexpected links or share sensitive codes.",
         "user_alert":        user_alert,
+        "link_count":        len(found_urls)
     }
 
 

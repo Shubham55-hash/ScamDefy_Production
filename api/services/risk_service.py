@@ -218,13 +218,13 @@ def score(
     # Authoritative hit (GSB/URLHaus) is the primary signal
     auth_val = max(gsb_contrib, uh_contrib)
     
-    # Raw components for heuristics
-    # Weights: Auth 40%, Domain 15%, Pattern 15%, Age 15%, Impersonation 15%
-    c_auth    = auth_val * 0.40
+    # Rebalanced Weights for a more even distribution
+    # Authority 25%, Reputation 15%, Pattern 20%, Age 20%, Impersonation 20%
+    c_auth    = auth_val * 0.25
     c_domain  = domain_contribution * 0.15
-    c_pattern = url_pattern_score   * 0.15
-    c_age     = age_score           * 0.15
-    c_imp     = impersonation_score * 0.15
+    c_pattern = url_pattern_score   * 0.20
+    c_age     = age_score           * 0.20
+    c_imp     = impersonation_score * 0.20
     
     # Preliminary weighted sum
     weighted_sum = c_auth + c_domain + c_pattern + c_age + c_imp
@@ -234,43 +234,30 @@ def score(
     is_authoritative_threat = gsb_threat or uh_threat
     
     if is_authoritative_threat:
-        final_score = 100.0
+        # If it's a known threat, force high score, but spread the "blame"
+        final_score = max(90.0, weighted_sum)
+        if final_score > 100: final_score = 100.0
     else:
-        # Dynamic bonuses for suspicious combinations instead of hard floors
-        # This creates more varied scores (e.g. 64.5, 72.8)
+        # Dynamic bonuses for suspicious combinations
         bonus = 0.0
-        
-        # Scenario A: Brand Impersonation + High Risk TLD or Anomalies
         if impersonation_score > 0:
-            if url_pattern_score > 50: bonus += 15.0
-            elif url_pattern_score > 30: bonus += 10.0
-            
-            # Scenario B: Brand Impersonation + New Domain
-            if age_score > 50: bonus += 20.0
-            elif age_score > 20: bonus += 10.0
+            if url_pattern_score > 30: bonus += 15.0
+            if age_score > 30: bonus += 15.0
         
-        # Scenario C: Just a very suspicious URL pattern
-        elif url_pattern_score > 70:
-            bonus += 15.0
-            
         final_score = min(100.0, weighted_sum + bonus)
         
-        # Low floor to ensure detected threats are visible as at least CAUTION
-        if (impersonation_score > 0 or age_score > 40 or url_pattern_score > 40) and final_score < 30:
-            final_score = 30.0
+        # Floor for caution
+        if (impersonation_score > 0 or age_score > 40) and final_score < 35:
+            final_score = 35.0
     
-    # 3. Normalization logic: Scale components so they sum to final_score
-    # This ensures the breakdown shown to the user is intuitive.
+    # 3. Normalization logic: Scale components to reach final_score
     if final_score > 0:
-        if weighted_sum > 0:
-            ratio = final_score / weighted_sum
-        else:
-            # If all signals were 0 but final_score > 0 (shouldn't happen with current logic),
-            # we don't have a breakdown to show.
-            ratio = 1.0
+        # Total weight available to distribute
+        denominator = weighted_sum if weighted_sum > 0 else 1.0
+        ratio = final_score / denominator
             
-        n_gsb     = (gsb_contrib * 0.40) * ratio if gsb_threat else 0.0
-        n_uh      = (uh_contrib  * 0.40) * ratio if uh_threat  else 0.0
+        n_gsb     = (gsb_contrib * 0.25) * ratio if gsb_threat else 0.0
+        n_uh      = (uh_contrib  * 0.25) * ratio if uh_threat  else 0.0
         n_domain  = c_domain  * ratio
         n_pattern = c_pattern * ratio
         n_age     = c_age     * ratio

@@ -4,6 +4,8 @@ import { useGuardianAlert } from '../hooks/useGuardianAlert';
 import { useAppStore } from '../store/appStore';
 import { getHealth, getStats } from '../api/threatService';
 import { UrlInput } from '../components/scanner/UrlInput';
+import { ScanResultCard } from '../components/scanner/ScanResultCard';
+import { ThreatBreakdown } from '../components/scanner/ThreatBreakdown';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 
 // ── Particle canvas orb ──────────────────────────────────────────────────────
@@ -201,61 +203,37 @@ export function Dashboard() {
           </div>
         )}
 
-        {/* AI explanation after scan */}
-        {result?.explanation && (
-          <div className="w-full mb-8 glass-panel rounded-xl p-6 border-l-2 border-electricCyan slide-up bg-[#00f2ff]/5">
-            <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-3 font-bold">Neural Analysis</p>
-            <p className="text-sm text-white/70 leading-relaxed font-light">{result.explanation}</p>
-            {result.scam_type && (
-              <p className="mt-4 text-[10px] font-mono text-white/40 border-t border-white/5 pt-3">
-                TYPE: {result.scam_type.replace(/_/g, ' ')} · LATENCY: {(result.scan_time_ms + 1000).toFixed(0)}ms
-              </p>
+        {/* Scan results (Technical Cards) */}
+        {result && (
+          <div className="w-full space-y-6 slide-up mb-10">
+            {/* AI explanation highlight */}
+            {result.explanation && (
+              <div className="glass-panel rounded-xl p-6 border-l-2 border-electricCyan bg-[#00f2ff]/5">
+                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-3 font-bold">Neural Analysis</p>
+                <p className="text-sm text-white/70 leading-relaxed font-light">{result.explanation}</p>
+                {result.scam_type && (
+                  <p className="mt-4 text-[10px] font-mono text-white/40 border-t border-white/5 pt-3">
+                    TYPE: {result.scam_type.replace(/_/g, ' ')} · LATENCY: {(result.scan_time_ms + 1000).toFixed(0)}ms
+                  </p>
+                )}
+              </div>
             )}
+            
+            <div className="space-y-4">
+              <ScanResultCard result={result} />
+              <ThreatBreakdown breakdown={result.breakdown} />
+            </div>
+            
+            <button
+               onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+               className="w-full text-[10px] font-mono uppercase tracking-[0.2em] border border-white/10 rounded-lg py-3 text-white/40 hover:border-electricCyan/30 hover:text-electricCyan/60 transition-all"
+            >
+              ↑ BACK TO ORB TRACKER
+            </button>
           </div>
         )}
       </div>
 
-      {/* Module health grid */}
-      {health?.modules && (
-        <div className="w-full max-w-5xl mt-12">
-          <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/30 mb-8 text-center">Detection Modules</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {Object.entries(health.modules).map(([mod, active]) => (
-              <div key={mod} className="glass-panel p-6 rounded-xl h-full flex flex-col bg-white/[0.02] hover:bg-white/[0.04] transition-all border border-white/[0.05] group">
-                {/* Hexagon icon */}
-                <div
-                  className="w-10 h-10 hexagon-clip flex items-center justify-center mb-4 text-base transition-transform group-hover:scale-110"
-                  style={{
-                    border: `1px solid ${active ? '#00f2ff' : '#ff00e5'}40`,
-                    background: `${active ? '#00f2ff' : '#ff00e5'}08`,
-                  }}
-                >
-                  {MODULE_ICONS[mod] ?? '⚙️'}
-                </div>
-                <h3 className="text-sm font-bold mb-1 capitalize text-white/90">{mod.replace(/_/g, ' ')}</h3>
-                <p className="text-[11px] text-white/40 font-light leading-relaxed mb-6">
-                  {active
-                    ? `${mod.replace(/_/g, ' ')} detection module is fully operational.`
-                    : `API key required to enable feature.`}
-                </p>
-                <div className="mt-auto pt-4 border-t border-white/5 flex items-center gap-2">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{
-                      background: active ? '#00f2ff' : '#ff00e5',
-                      animation: 'pulse 2s infinite',
-                      boxShadow: `0 0 4px ${active ? '#00f2ff' : '#ff00e5'}`,
-                    }}
-                  />
-                  <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">
-                    {active ? 'ACTIVE_SENTINEL' : 'NO_KEY_DETECTED'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

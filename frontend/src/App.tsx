@@ -13,10 +13,10 @@ import type { Screen } from './types';
 
 const NAV_LINKS: Array<{ id: Screen; label: string; desktopLabel: string; testOnly?: boolean }> = [
   { id: 'dashboard',  label: 'Home',     desktopLabel: 'Command Center'   },
-  { id: 'webthreats', label: 'Scanner',  desktopLabel: 'Surveillance'     },
   { id: 'qrscan',     label: 'QR',       desktopLabel: 'QR Shield'         },
   { id: 'calllogs',   label: 'Voice',    desktopLabel: 'Neural Net'        },
-  { id: 'settings',   label: 'Settings', desktopLabel: 'Encrypted Logs'   },
+  { id: 'webthreats', label: 'History',  desktopLabel: 'Threat Log'       },
+  { id: 'settings',   label: 'Settings', desktopLabel: 'Security Center'   },
   { id: 'testlab',    label: 'Test',     desktopLabel: 'Test Lab ⚗',       testOnly: true },
 ];
 
