@@ -105,3 +105,23 @@ def _get_counts(key: str) -> Dict[str, int]:
         "false_positive_reports": fp_count,
         "total_reports":          scam_count + fp_count,
     }
+
+
+def get_all_reports() -> List[Dict[str, Any]]:
+    """
+    Returns a flattened list of all reports across all URLs,
+    sorted by timestamp (most recent first).
+    """
+    with _lock:
+        _load()
+        flattened = []
+        for url_key, reports in _reports.items():
+            for r in reports:
+                # Add the URL context to each report entry
+                full_report = r.copy()
+                full_report["url"] = url_key
+                flattened.append(full_report)
+        
+        # Sort by timestamp descending
+        flattened.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        return flattened

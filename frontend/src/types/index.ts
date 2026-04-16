@@ -1,6 +1,16 @@
 export type Verdict = 'SAFE' | 'CAUTION' | 'DANGER' | 'BLOCKED';
-export type Screen = 'landing' | 'dashboard' | 'webthreats' | 'qrscan' | 'calllogs' | 'settings' | 'safetycircle' | 'testlab';
+export type Screen = 'landing' | 'dashboard' | 'webthreats' | 'qrscan' | 'calllogs' | 'settings' | 'safetycircle' | 'testlab' | 'communityfeedback';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+// ... (other types)
+
+export interface CommunityReport {
+  id: string;
+  url: string;
+  type: 'scam' | 'false_positive';
+  reason: string;
+  timestamp: number;
+}
 export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'UNKNOWN' | 'UNCERTAIN';
 
 export interface SignalItem {

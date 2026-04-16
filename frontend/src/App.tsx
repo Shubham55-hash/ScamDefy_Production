@@ -7,6 +7,7 @@ import { Settings } from './screens/Settings';
 import { SafetyCircle } from './screens/SafetyCircle';
 import { TestDashboard } from './screens/TestDashboard';
 import { LandingPage } from './screens/LandingPage';
+import { CommunityReports } from './screens/CommunityReports';
 import { ToastContainer } from './components/ui/Toast';
 import { BottomNav } from './components/BottomNav';
 import type { Screen } from './types';
@@ -17,6 +18,7 @@ const NAV_LINKS: Array<{ id: Screen; label: string; desktopLabel: string; testOn
   { id: 'calllogs',   label: 'Voice',    desktopLabel: 'Neural Net'        },
   { id: 'webthreats', label: 'History',  desktopLabel: 'Threat Log'       },
   { id: 'settings',   label: 'Settings', desktopLabel: 'Security Center'   },
+  { id: 'communityfeedback', label: 'Intel',  desktopLabel: 'Community Intel', testOnly: true },
   { id: 'testlab',    label: 'Test',     desktopLabel: 'Test Lab ⚗',       testOnly: true },
 ];
 
@@ -153,6 +155,7 @@ export default function App() {
         {visited.has('calllogs')     && <div style={{ display: screen === 'calllogs'     ? 'block' : 'none' }}><CallLogs /></div>}
         {visited.has('settings')     && <div style={{ display: screen === 'settings'     ? 'block' : 'none' }}><Settings onNavigate={navigate} /></div>}
         {visited.has('safetycircle') && <div style={{ display: screen === 'safetycircle' ? 'block' : 'none' }}><SafetyCircle onBack={() => navigate('settings')} /></div>}
+        {testMode && visited.has('communityfeedback') && <div style={{ display: screen === 'communityfeedback' ? 'block' : 'none' }}><CommunityReports /></div>}
         {testMode && visited.has('testlab') && <div style={{ display: screen === 'testlab' ? 'block' : 'none' }}><TestDashboard /></div>}
       </main>
 

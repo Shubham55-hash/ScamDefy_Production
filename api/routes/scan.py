@@ -16,7 +16,8 @@ from services.risk_service import score as calculate_score
 from services.ai_service import generate_explanation, analyze_message_ai
 from services.domain_age_service import get_domain_age
 from utils.threat_logger import log_threat
-from utils.report_manager import add_report, get_report_counts
+from utils.report_manager import add_report, get_report_counts, get_all_reports
+from utils import overrides_manager
 
 
 def normalize_url(url: str) -> str:
@@ -115,6 +116,39 @@ async def scan_url_get(url: str, bypass_cache: bool = False, gsb_key: str = None
 async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str = None, gemini_key: str = None):
     start_time = time.time()
 
+    # 1. Check for Developer Master Overrides (Highest Priority)
+    manual_verdict = overrides_manager.get_override(url)
+    if manual_verdict:
+        score = 100.0 if manual_verdict == "BLOCKED" else 0.0
+        return {
+            "id":           str(uuid.uuid4()),
+            "url":          url,
+            "final_url":    url,
+            "expanded":     False,
+            "score":        score,
+            "verdict":      manual_verdict,
+            "risk_level":   "CRITICAL" if manual_verdict == "BLOCKED" else "LOW",
+            "scam_type":    "Developer Manual Block" if manual_verdict == "BLOCKED" else "Clean",
+            "color":        "#ef4444" if manual_verdict == "BLOCKED" else "#00f2ff",
+            "should_block": manual_verdict == "BLOCKED",
+            "breakdown": {
+                "gsb": 0.0, "urlhaus": 0.0, "domain": 0.0, "url_pattern": 0.0, "domain_age": 0.0, "impersonation": 0.0, "heuristics": 0.0, "virustotal": 0.0,
+                "manual_override": 100.0 if manual_verdict == "BLOCKED" else 0.0
+            },
+            "domain_age": { "age_days": 9999, "registered_on": "Legacy", "source": "Manual Override" },
+            "signals": [
+                {"name": f"Developer {manual_verdict}", "points": score, "severity": "CRITICAL" if score > 0 else "LOW"},
+            ],
+            "explanation":  f"This result has been manually set as '{manual_verdict}' by a developer override.",
+            "reasons":      [f"⚠️ VERDICT_FORCED: {manual_verdict} by Administrator"],
+            "flags":        ["MANUAL_OVERRIDE"],
+            "cached":       False,
+            "scan_time_ms": int((time.time() - start_time) * 1000),
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
+            "community_reports": get_report_counts(url),
+        }
+
+    # 2. Check Cache
     if not bypass_cache and url in scan_cache:
         result = dict(scan_cache[url])
         result["cached"] = True
@@ -395,3 +429,35 @@ async def report_url(req: ReportRequest):
 async def get_report_counts_endpoint(url: str):
     """Fetch current community report counts for a URL without scanning."""
     return get_report_counts(url)
+
+
+@router.get("/reports/all")
+async def get_all_reports_endpoint():
+    """Developer endpoint to fetch global report history."""
+    return get_all_reports()
+
+
+class OverrideRequest(BaseModel):
+    url: str
+    verdict: str  # 'SAFE' | 'BLOCKED' | 'CLEAR'
+
+
+@router.post("/overrides")
+async def set_url_override(req: OverrideRequest):
+    """Developer endpoint to manually force a URL's verdict."""
+    if req.verdict.upper() == "CLEAR":
+        overrides_manager.delete_override(req.url)
+        return {"status": "cleared", "url": req.url}
+    
+    overrides_manager.set_override(req.url, req.verdict.upper())
+    # Clear cache for this URL so the new verdict is seen immediately
+    if req.url in scan_cache:
+        del scan_cache[req.url]
+    
+    return {"status": "set", "url": req.url, "verdict": req.verdict.upper()}
+
+
+@router.get("/overrides/all")
+async def get_all_overrides_endpoint():
+    """Developer endpoint to see all active overrides."""
+    return overrides_manager.get_all_overrides()

@@ -23,6 +23,20 @@
       "type": "scam",
       "reason": "",
       "timestamp": 1776360640.9904394
+    },
+    {
+      "id": "c9cf041b",
+      "type": "false_positive",
+      "reason": "",
+      "timestamp": 1776361554.6794868
+    }
+  ],
+  "example.com": [
+    {
+      "id": "95d90217",
+      "type": "test",
+      "reason": "antigravity",
+      "timestamp": 1776361711.2594137
     }
   ]
 }
