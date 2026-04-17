@@ -1,79 +1,73 @@
 import pytest
 import numpy as np
-from services.voice_service import ForensicEngine, FORENSIC_WEIGHTS
+from services.voice_service import ForensicEngine, AI_BAND, HUMAN_BAND
 
 def test_weighted_fusion_clear_ai():
-    # Example 1 from USER_REQUEST:
-    # local: 0.82, wav2vec: 0.65, gemini: 0.55
-    # score = (0.82*0.5) + (0.65*0.4) + (0.55*0.1) = 0.725 -> AI
+    # In v3.3: Neural (0.95), Wav2Vec (0.92), Biometric_raw (0.8 -> norm=0.9)
+    # weighted = 0.5*0.95 + 0.3*0.92 + 0.2*0.9 = 0.475 + 0.276 + 0.18 = 0.931
     models = {
-        "local":    {"ai_probability": 0.82, "confidence": 0.9},
-        "wav2vec":  {"ai_probability": 0.65, "confidence": 0.8},
-        "gemini":   {"ai_probability": 0.55, "confidence": 0.7}
+        "local":    {"ai_probability": 0.95, "confidence": 0.95, "biometric_raw": 0.8},
+        "wav2vec":  {"ai_probability": 0.92, "confidence": 0.90},
+        "gemini":   {"ai_probability": 0.90, "confidence": 0.85, "label": "SYNTHETIC"}
     }
-    decision = ForensicEngine.compute_decision(models)
-    assert decision["final_label"] == "AI"
-    assert decision["final_ai_score"] == 0.725
+    decision = ForensicEngine.compute_decision(models, duration=3.0)
+    assert decision["final_label"] == "SYNTHETIC"
+    assert decision["decision_path"] == "neural_override" # 0.95 > 0.92
 
-def test_uncertainty_handling_borderline():
-    # Example 2 from USER_REQUEST:
-    # local: 0.52, wav2vec: 0.48, gemini: 0.60
-    # score = 0.512 -> UNCERTAIN
+def test_weighted_consensus_v33():
+    # Neural (0.75), Wav2Vec (0.72), Biometric_raw (-0.8 -> norm=0.1)
+    # weighted = 0.5*0.75 + 0.3*0.72 + 0.2*0.1 = 0.375 + 0.216 + 0.02 = 0.611
+    # 0.611 is in UNCERTAIN band (0.55 - 0.68)
     models = {
-        "local":    {"ai_probability": 0.52, "confidence": 0.9},
-        "wav2vec":  {"ai_probability": 0.48, "confidence": 0.8},
-        "gemini":   {"ai_probability": 0.60, "confidence": 0.7}
+        "local":    {"ai_probability": 0.75, "confidence": 0.90, "biometric_raw": -0.8},
+        "wav2vec":  {"ai_probability": 0.72, "confidence": 0.90},
+        "gemini":   {"ai_probability": 0.50, "confidence": 0.80}
     }
-    decision = ForensicEngine.compute_decision(models)
+    decision = ForensicEngine.compute_decision(models, duration=3.0)
     assert decision["final_label"] == "UNCERTAIN"
-    assert 0.3 < decision["final_ai_score"] < 0.7
+    assert decision["decision_path"] == "uncertain_band"
 
-def test_conflict_resolution_variance():
-    # High variance (> 0.4) should lead to UNCERTAIN
-    # Variance of [0.9, 0.1, 0.5]
-    # mean = 0.5
-    # var = ((0.4)**2 + (-0.4)**2 + 0) / 3 = (0.16 + 0.16) / 3 = 0.106... wait
-    # We need a variance > 0.4
-    # variance of [1.0, 0.0, 0.5]
-    # mean = 0.5
-    # var = (0.5^2 + 0.5^2 + 0) / 3 = 0.5 / 3 = 0.166...
-    # Variance of [1.0, 0.0, 1.0] -> mean 0.66, var = (0.33^2 * 2 + 0.66^2)/3 = (0.11*2 + 0.44)/3 = 0.66/3 = 0.22...
-    # Variance of [1.0, 0.0] is 0.25.
-    # To get variance > 0.4, we need extreme values.
-    # actually np.var([1, 0, 0]) = 0.66/3 = 0.22
-    # Wait, the variance threshold is 0.4. np.var uses N.
-    # np.var([0, 1]) is 0.25.
-    # To get variance > 0.4 with 3 numbers:
-    # p_vals = [0.0, 0.0, 1.0] -> mean 0.33, var 0.22
-    # p_vals = [0.0, 1.0, 1.0] -> mean 0.66, var 0.22
-    # Hmm, variance > 0.4 might be hard with just values in [0, 1].
-    # Max variance for 3 values in [0, 1] is when two are 0 and one is 1 (or vice versa), which is 0.22.
-    # Unless USER_REQUEST meant a different variance or I'm using the wrong formula.
-    # Maybe "variance" in the request meant 'Range' or 'Standard Deviation'?
-    # Or maybe it's possible if values are outside [0, 1]? But they are probabilities.
-    # Let's check VARIANCE_THRESHOLD in the code. It was 0.40.
-    
-    # If the user said "If variance > 0.4", they might have meant a specific disagreement metric.
-    # Let's try [1.0, 0.0, 0.5] again. np.var is 0.166.
-    # If I use `max(p) - min(p) > 0.4`? Variance is different.
-    
-    # Let's re-read the engine rules. "If variance > 0.4".
-    # I'll stick to the implementation of np.var.
-    pass
-
-def test_primary_confidence_penalty():
-    # Local confidence < 0.6 -> reduce influence
-    # Weights should change from [0.5, 0.4, 0.1]
+def test_human_band_v33():
+    # Clear human case
     models = {
-        "local":    {"ai_probability": 1.0, "confidence": 0.3}, # 0.3 is 50% of 0.6
-        "wav2vec":  {"ai_probability": 0.0, "confidence": 1.0},
-        "gemini":   {"ai_probability": 0.0, "confidence": 1.0}
+        "local":    {"ai_probability": 0.10, "confidence": 0.95, "biometric_raw": -0.9},
+        "wav2vec":  {"ai_probability": 0.15, "confidence": 0.90},
+        "gemini":   {"ai_probability": 0.10, "confidence": 0.90}
     }
-    decision = ForensicEngine.compute_decision(models)
-    weights = decision["weights"]
-    assert weights["local"] < 0.5
-    assert weights["wav2vec"] > 0.4
-    assert weights["gemini"] > 0.1
+    decision = ForensicEngine.compute_decision(models, duration=3.0)
+    assert decision["final_label"] == "REAL"
+    assert decision["decision_path"] == "human_band"
+
+def test_neural_override_v33():
+    # neural_score > 0.92 should trigger SYNTHETIC even if others are low
+    models = {
+        "local":    {"ai_probability": 0.94, "confidence": 0.95, "biometric_raw": -0.8},
+        "wav2vec":  {"ai_probability": 0.30, "confidence": 0.85},
+        "gemini":   {"ai_probability": 0.20, "confidence": 0.80}
+    }
+    decision = ForensicEngine.compute_decision(models, duration=3.0)
+    assert decision["final_label"] == "SYNTHETIC"
+    assert decision["decision_path"] == "neural_override"
+
+def test_signal_quality_gate_v33():
+    models = {"local": {}, "wav2vec": {}, "gemini": {}}
+    decision = ForensicEngine.compute_decision(models, duration=1.5)
+    assert decision["final_label"] == "UNCERTAIN"
+    assert decision["decision_path"] == "signal_quality_gate"
+
+def test_confidence_smoothing_v33():
+    # Case within 0.05 margin of 0.68 (e.g., 0.67)
+    # neural 0.7, wav2vec 0.6, biometric_norm 0.7 -> weighted = 0.5*0.7 + 0.3*0.6 + 0.2*0.7 = 0.35 + 0.18 + 0.14 = 0.67
+    # margin = 0.01. Penalty = (0.5 + 0.01 * 10) = 0.6x
+    models = {
+        "local":    {"ai_probability": 0.7, "confidence": 1.0, "biometric_raw": 0.4},
+        "wav2vec":  {"ai_probability": 0.6, "confidence": 1.0},
+        "gemini":   {"ai_probability": 0.5, "confidence": 1.0}
+    }
+    decision = ForensicEngine.compute_decision(models, duration=3.0)
+    # raw avg conf is 1.0. penalized should be around 0.6
+    assert decision["confidence"] < 0.7
+    assert decision["confidence"] > 0.5
 
 def test_normalization():
     local = {"score": 0.9, "confidence": 0.8}

@@ -36,8 +36,11 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
       
       {/* LOCAL TOP NAV */}
       <header className="fixed top-0 left-0 w-full z-50 px-6 lg:px-12 py-4 flex justify-between items-center bg-[#070b14]/90 backdrop-blur-md border-b border-white/5">
-        <div className="flex items-center space-x-3">
-          <h1 className="text-2xl font-black tracking-tight uppercase">
+        <div 
+          onClick={() => onNavigate('landing')} 
+          className="flex items-center space-x-3 cursor-pointer group"
+        >
+          <h1 className="text-2xl font-black tracking-tight uppercase group-hover:text-electricCyan transition-colors">
             ScamDefy
           </h1>
         </div>

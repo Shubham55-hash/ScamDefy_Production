@@ -129,7 +129,7 @@ async def analyze_message_ai(text: str, api_key: str = None) -> dict:
                 "verdict": data.get("verdict", "SAFE"),
                 "scam_category": data.get("category", "General Phishing"),
                 "explanation": data.get("explanation", ""),
-                "recommendation": data.get("recommendation", "Verify sender identity and avoid clicking unknown links."),
+                "recommendation": data.get("recommendation") or "Verify sender identity and avoid clicking unknown links.",
                 "signals": data.get("triggered_signals", [])
             }
         return fallback

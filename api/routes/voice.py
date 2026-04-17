@@ -59,7 +59,7 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
     request_id = str(uuid.uuid4())
 
     # Log to Surveillance if synthetic
-    if final_label == "AI":
+    if final_label == "SYNTHETIC":
         log_threat(
             id=request_id,
             url=f"Voice Payload: {audio.filename}",
@@ -86,6 +86,7 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
         # --- Production Metadata ---
         "verdict":          final_label, 
         "confidence":       confidence,   # RESTORED for backward compat
+        "reason":           explanation,
         "confidence_pct":   round(confidence * 100, 1),
         "model_loaded":     voice_service.pretrained_available,
         "warning":          result.get("warning"),

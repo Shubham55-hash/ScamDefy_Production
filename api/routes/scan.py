@@ -230,6 +230,8 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str =
         explanation = " ".join(reasons[:2])
 
     signals = []
+    breakdown = risk_result.get("breakdown", {})
+    
     for f in flags:
         severity = (
             "CRITICAL" if f in ("GSB_THREAT", "URLHAUS_MALWARE") else
@@ -237,12 +239,28 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str =
                                  "BRAND_IMPERSONATION", "PUNYCODE_HOMOGRAPH", "NEW_DOMAIN") else
             "MEDIUM"
         )
-        points = (
-            40 if f in ("GSB_THREAT", "URLHAUS_MALWARE") else
-            30 if f in ("BRAND_IMPERSONATION", "TYPOSQUATTING", "NEW_DOMAIN") else
-            20
-        )
-        signals.append({"name": f.replace("_", " ").title(), "points": points, "severity": severity})
+        
+        # Pull the REAL mathematical contribution for this flag from the breakdown
+        points = 0.0
+        if f == "GSB_THREAT":           points = breakdown.get("gsb", 0)
+        elif f == "URLHAUS_MALWARE":    points = breakdown.get("urlhaus", 0)
+        elif f in ("BRAND_IMPERSONATION", "TYPOSQUATTING", "CHARACTER_SUBSTITUTION"):
+            points = breakdown.get("impersonation", 0)
+        elif f == "NEW_DOMAIN":         points = breakdown.get("domain_age", 0)
+        elif f in ("DEEP_SUBDOMAIN", "SUSPICIOUS_TLD", "HYPHEN_ABUSE"):
+            points = breakdown.get("domain", 0)
+        else:
+            points = breakdown.get("url_pattern", 0)
+
+        # If multiple flags share a breakdown category, we split it or just show the primary
+        # For UI simplicity, we'll round and ensure it's at least 1 if the flag exists
+        display_points = max(round(float(points)), 1) if points > 0 else 10 # Default fallback
+        
+        signals.append({
+            "name": f.replace("_", " ").title(), 
+            "points": display_points, 
+            "severity": severity
+        })
 
     response_data = {
         "id":           str(uuid.uuid4()),
@@ -350,13 +368,56 @@ async def analyze_message(req: MessageRequest):
     # 2. Run AI Context Analysis on the text
     ai_result = await analyze_message_ai(text, api_key=req.gemini_key)
     
-    # 3. Decision Logic & Scoring
+    # 3. Rule-based signal detection (runs regardless of AI availability)
+    # This ensures signals are always populated for obvious scam keywords,
+    # making the system resilient to Gemini quota/outages.
+    RULE_SIGNALS = [
+        (["otp", "one time password", "verification code"],          "OTP Request",              40, "HIGH"),
+        (["share your otp", "share otp", "send otp", "send code"],   "OTP Sharing Request",      50, "CRITICAL"),
+        (["kyc", "know your customer", "kyc update", "kyc expired"], "KYC Fraud",                35, "HIGH"),
+        (["cvv", "card number", "credit card", "debit card"],        "Card Credential Request",  45, "CRITICAL"),
+        (["pin", "atm pin", "share your pin"],                       "PIN Request",              45, "CRITICAL"),
+        (["aadhaar", "pan card", "account number", "bank details"],  "Identity Theft",           40, "HIGH"),
+        (["urgent", "immediately", "account blocked", "suspended"],  "False Urgency",            20, "MEDIUM"),
+        (["click here", "click the link", "bit.ly", "tinyurl"],      "Suspicious Link",          25, "MEDIUM"),
+        (["lottery", "winner", "prize", "congratulations"],          "Lottery Scam",             30, "HIGH"),
+        (["refund", "cashback pending", "tax refund"],               "Refund Scam",              25, "MEDIUM"),
+        (["teamviewer", "anydesk", "remote access"],                 "Remote Access Scam",       50, "CRITICAL"),
+        (["gift card", "google play card", "amazon card"],           "Gift Card Scam",           40, "HIGH"),
+    ]
+    text_lower = text.lower()
+    rule_signals_found = []
+    rule_score_boost = 0.0
+    for keywords, name, pts, severity in RULE_SIGNALS:
+        if any(kw in text_lower for kw in keywords):
+            # Avoid duplicates if AI already returned this signal
+            if not any(s["name"] == name for s in [{"name": s, "points": 20, "severity": "MEDIUM"} for s in ai_result.get("signals", [])]):
+                rule_signals_found.append({"name": name, "points": pts, "severity": severity})
+                rule_score_boost += pts  # contribute 100% of pts to score
+
+    # 4. Decision Logic & Scoring
     # Start with AI score as baseline
     final_score = float(ai_result.get("score", 0))
     risk_level = ai_result.get("verdict", "SAFE")
     scam_category = ai_result.get("scam_category", "Social Engineering")
     user_alert = ai_result.get("explanation", "No immediate scam signals detected.")
     signals_triggered = [{"name": s, "points": 20, "severity": "MEDIUM"} for s in ai_result.get("signals", [])]
+    
+    # Merge rule-based signals and boost score if AI returned nothing (quota hit)
+    signals_triggered.extend(rule_signals_found)
+    if not ai_result.get("signals") and rule_signals_found:
+        # AI was unavailable — use rule-based score boost and set risk level
+        final_score = min(final_score + rule_score_boost, 100.0)
+        
+        # Recalculate risk level based on rule score
+        if final_score >= 80:
+            risk_level = "CRITICAL"
+        elif final_score >= 60:
+            risk_level = "HIGH"
+        elif final_score >= 30:
+            risk_level = "SUSPICIOUS"
+            
+        scam_category = rule_signals_found[0]["name"] if rule_signals_found else "Social Engineering"
 
     # Overlay Link Results if a malicious link is found
     malicious_link = next((l for l in link_results if l.get("score", 0) > 40), None)
@@ -375,15 +436,15 @@ async def analyze_message(req: MessageRequest):
             "severity": "CRITICAL" if final_score >= 80 else "HIGH"
         })
     else:
-        # No bad links, use AI verdict but cap at SUSPICIOUS (not SCAM) per user request
+        # No bad links — map AI verdicts to app risk levels.
+        # Allow HIGH for high-confidence text-only scams (score >= 60),
+        # cap borderline cases to SUSPICIOUS only.
         if risk_level in ("DANGER", "CRITICAL", "SCAM"):
-             risk_level = "SUSPICIOUS"
-             if final_score > 60: final_score = 60 # Cap score for text-only
-    
-    # Map AI DANGER to app-specific risk levels if needed
-    if not malicious_link:
-        if risk_level == "DANGER": risk_level = "HIGH"
-        if risk_level == "CRITICAL": risk_level = "HIGH"
+            if final_score >= 60:
+                risk_level = "HIGH"
+            else:
+                risk_level = "SUSPICIOUS"
+                final_score = min(final_score, 59)  # keep below HIGH threshold
 
     # Log to surveillance if significant
     if final_score >= 15:
@@ -403,7 +464,7 @@ async def analyze_message(req: MessageRequest):
         "risk_score":        final_score,
         "scam_category":     scam_category,
         "signals_triggered": signals_triggered,
-        "recommendation":    ai_result.get("recommendation", "Verify sender identity and never click unexpected links or share sensitive codes."),
+        "recommendation":    ai_result.get("recommendation") or "Verify sender identity and never click unexpected links or share sensitive codes.",
         "user_alert":        user_alert,
         "link_count":        len(found_urls)
     }

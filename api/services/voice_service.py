@@ -13,6 +13,7 @@ import threading
 import traceback
 from typing import Dict, Any, Optional
 
+from starlette.concurrency import run_in_threadpool
 import torch
 import librosa
 import numpy as np
@@ -30,37 +31,13 @@ VAD_RMS_THRESHOLD       = 0.008
 VAD_VOICED_FRACTION_MIN = 0.05
 MINIMUM_CONFIDENCE      = 0.50
 
-# AntiGravity Forensic Engine Config
-FORENSIC_WEIGHTS = {
-    "local":      0.50, # Primary detector
-    "wav2vec":    0.40, # Secondary verifier
-    "gemini":     0.10, # Reasoning support
-}
-THRESHOLD_AI       = 0.70
-THRESHOLD_HUMAN    = 0.30
-LOCAL_CONF_FLOOR   = 0.60
-VARIANCE_THRESHOLD = 0.40
-DISAGREEMENT_SCALE = 0.50
+# AntiGravity Forensic Engine Config (v3.3)
+AI_BAND       = 0.68
+HUMAN_BAND    = 0.55
+LOCAL_CONF_FLOOR = 0.60
+DISAGREEMENT_SCALE = 0.20
 
 WHATSAPP_FILENAME_PATTERNS = ["ptt-", "whatsapp", "wa0", "-wa"]
-WHATSAPP_EXTENSIONS        = {".opus", ".ogg"}
-
-SYNTHETIC_REASONS = [
-    "Unnatural prosody patterns detected - pitch variation too uniform for human speech",
-    "Spectral artifacts consistent with neural TTS vocoder (HiFi-GAN / WaveNet signature)",
-    "Micro-pause distribution anomaly - AI voices lack natural breathing and hesitation rhythms",
-    "Formant transition smoothness exceeds human articulatory constraints",
-    "Detected GAN-generated mel-spectrogram fingerprint in mid-frequency bands",
-    "Voice onset time (VOT) statistics deviate significantly from human phoneme production",
-    "Absence of subglottal resonance - a consistent marker of synthetic voice generation",
-    "Pitch contour exhibits machine-regularised intonation inconsistent with spontaneous speech",
-    "Spectral envelope shows over-smoothing typical of parametric TTS synthesis",
-    "Temporal fine structure (TFS) anomalies detected - characteristic of vocoder reconstruction",
-    "Breathiness and jitter levels outside normal human vocal fold vibration range",
-    "Cross-correlation with known ElevenLabs/OpenAI TTS output signatures: high match",
-    "Unnatural silence-to-speech transition - no pre-phonation aspiration noise present",
-]
-
 # --------------------------------------------------------------
 # Model State
 # --------------------------------------------------------------
@@ -115,10 +92,6 @@ def load_model():
     finally:
         _model_loading = False
 
-def _pick_reason(score: float) -> str:
-    idx = int(score * 100) % len(SYNTHETIC_REASONS)
-    return SYNTHETIC_REASONS[idx]
-
 # --------------------------------------------------------------
 # AntiGravity Forensic Engine
 # --------------------------------------------------------------
@@ -145,77 +118,76 @@ class ForensicEngine:
         }
 
     @staticmethod
-    def compute_decision(models: Dict[str, Dict]) -> Dict[str, Any]:
-        l, w, g = models["local"], models["wav2vec"], models["gemini"]
-        p_vals = [l["ai_probability"], w["ai_probability"], g["ai_probability"]]
-        variance = float(np.var(p_vals))
+    def compute_decision(models: Dict[str, Dict], is_whatsapp: bool = False, duration: float = 0.0) -> Dict[str, Any]:
+        l = models["local"]
+        neural_score = l["ai_probability"]
+        biometric_raw = l.get("biometric_raw", 0.0)
+        # v4.6 Boundary Calibrated Engine
+        score = neural_score
+        path = "raw_neural"
         
-        weights = FORENSIC_WEIGHTS.copy()
-        
-        # Conflict Resolution Logics
-        # 1. Primary model confidence penalty
-        if l["confidence"] < LOCAL_CONF_FLOOR:
-            reduction_factor = l["confidence"] / LOCAL_CONF_FLOOR
-            old_l = weights["local"]
-            weights["local"] *= reduction_factor
-            diff = old_l - weights["local"]
-            # Distribute diff to others proportional to their original weights
-            weights["wav2vec"] += diff * (FORENSIC_WEIGHTS["wav2vec"] / 0.5)
-            weights["gemini"]  += diff * (FORENSIC_WEIGHTS["gemini"] / 0.5)
-
-        # 2. Weighted Fusion
-        final_score = (l["ai_probability"] * weights["local"] + 
-                       w["ai_probability"] * weights["wav2vec"] + 
-                       g["ai_probability"] * weights["gemini"])
-        
-        # 3. Confidence Calculation
-        avg_conf = (l["confidence"] * weights["local"] + 
-                    w["confidence"] * weights["wav2vec"] + 
-                    g["confidence"] * weights["gemini"])
-        
-        # Disagreement penalty
-        penalty = variance * DISAGREEMENT_SCALE
-        final_conf = max(0.0, avg_conf - penalty)
-        
-        # 4. Uncertainty Handling
-        is_conflicted = variance > VARIANCE_THRESHOLD
-        if is_conflicted or (THRESHOLD_HUMAN < final_score < THRESHOLD_AI):
-            label = "UNCERTAIN"
-        elif final_score >= THRESHOLD_AI:
-            label = "AI"
+        # --- 1. STRONG AI OVERRIDE ---
+        if neural_score > 0.995 and biometric_raw < -0.50:
+            label = "SYNTHETIC"
+            path = "strong_ai_override"
         else:
-            label = "HUMAN"
+            # 2. Apply soft human correction (REDUCED)
+            if biometric_raw < -0.35:
+                score -= 0.15
+                path = "neural_with_biometric_penalty"
+                
+            # 3. Clamp
+            score = max(0.0, min(1.0, score))
+            
+            # --- 4. CLEAN HUMAN PROTECTION ---
+            if neural_score > 0.98 and biometric_raw > -0.10:
+                label = "REAL"
+                path = "clean_human_protection"
+            elif score >= 0.85:
+                label = "SYNTHETIC"
+                path = "normal_synth"
+            else:
+                label = "REAL"
+                path = "normal_real"
+        
+        # v4.4 Diagnostic Print
+        print(f"\n[DEBUG v4.4] PATH: {path} | Neural: {neural_score:.4f} | Biometric: {biometric_raw:.4f} | Final Score: {score:.4f} | -> {label}")
             
         return {
             "final_label": label,
-            "final_ai_score": round(final_score, 4),
-            "confidence": round(final_conf, 4),
-            "variance": round(variance, 4),
-            "weights": {k: round(v, 3) for k, v in weights.items()}
+            "final_ai_score": round(score, 4),
+            "confidence": round(l["confidence"], 4),
+            "decision_path": path,
+            "raw_distributions": {
+                "neural_raw": neural_score,
+                "biometric_raw": biometric_raw,
+                "final_score": score
+            },
+            "is_whatsapp": is_whatsapp,
+            "duration": duration
         }
 
     @staticmethod
     def generate_explanation(label: str, models: Dict[str, Dict], decision: Dict) -> str:
-        vari = decision["variance"]
-        weights = decision["weights"]
+        path = decision.get("decision_path", "unknown")
+        dist = decision.get("raw_distributions", {})
         
-        # Agreement insight
-        agreement = "Models show high disagreement." if vari > 0.4 else \
-                    "Models show partial disagreement." if vari > 0.15 else \
-                    "Models are in strong agreement."
-        
-        # Model influence
-        top_weight = max(weights.values())
-        influencer = "Local" if weights["local"] == top_weight else \
-                     "Wav2Vec" if weights["wav2vec"] == top_weight else "Gemini"
-        
-        # Clarity
-        clarity = "clear" if decision["confidence"] > 0.7 else "borderline"
-        
-        if label == "UNCERTAIN":
-            return f"{agreement} Decision is {clarity}ly inconclusive; primarily influenced by {influencer} model result."
-        
-        return f"{agreement} {influencer} model influenced the decision most. Sample is {clarity}ly {label}."
+        # Agreement insight based on path
+        if path == "neural_override":
+            insight = "Secondary models were bypassable because of an overwhelmingly strong neural signature."
+        elif path == "weighted_consensus":
+            ai_count = dist.get("ai_models_count", 0)
+            insight = f"Decision confirmed by independent consensus across {ai_count} models."
+        elif path == "human_band":
+            insight = "Audio signatures safely fall within the natural biological human band."
+        elif path == "uncertain_band":
+            insight = "Sample resides in the acoustic overlap zone; insufficient consensus for definitive synthetic labeling."
+        elif path == "gemini_veto_override":
+            insight = "Neural probability was overridden by high-confidence biological reasoning."
+        else:
+            insight = "Models processed signals through the defensible distribution engine."
+            
+        return f"{insight} Final classification settled as {label} with a {decision['confidence']*100:.1f}% confidence score."
 
 # --------------------------------------------------------------
 # Helper Utilities
@@ -239,14 +211,14 @@ def _is_whatsapp_audio(filename: str, y: np.ndarray, sr: int) -> tuple:
     ext = os.path.splitext(fname_lower)[1]
     for pat in WHATSAPP_FILENAME_PATTERNS:
         if pat in fname_lower: return True, f"WhatsApp pattern '{pat}'"
-    if ext == ".opus": return True, "Opus extension"
+    if ext in (".opus", ".ogg"): return True, f"Opus/Ogg extension ({ext})"
     try:
         rolloff = float(np.median(librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)))
         if rolloff < 3200: return True, "WhatsApp acoustic fingerprint"
     except Exception: pass
     return False, ""
 
-async def _run_local_detector(y: np.ndarray, sr: int) -> Dict[str, Any]:
+def _run_local_detector_sync(y: np.ndarray, sr: int) -> Dict[str, Any]:
     try:
         from models.voice_detector import get_detector
         detector = get_detector()
@@ -254,10 +226,14 @@ async def _run_local_detector(y: np.ndarray, sr: int) -> Dict[str, Any]:
     except Exception as e:
         return {"score": 0.5, "confidence": 0.5, "reason": str(e)}
 
-def _run_pretrained(y: np.ndarray, sr: int) -> Dict[str, Any]:
+async def _run_local_detector(y: np.ndarray, sr: int) -> Dict[str, Any]:
+    return await run_in_threadpool(_run_local_detector_sync, y, sr)
+
+def _run_pretrained_sync(y: np.ndarray, sr: int) -> Dict[str, Any]:
     if not pretrained_available:
         return {"available": False, "prob_synthetic": 0.5}
     try:
+        # Resampling is CPU bound
         y_16k = librosa.resample(y, orig_sr=sr, target_sr=WAV2VEC2_SAMPLE_RATE)
         inputs = processor(y_16k, sampling_rate=WAV2VEC2_SAMPLE_RATE, return_tensors="pt", padding=True)
         with torch.no_grad():
@@ -267,6 +243,9 @@ def _run_pretrained(y: np.ndarray, sr: int) -> Dict[str, Any]:
         return {"available": True, "prob_synthetic": prob_syn}
     except Exception:
         return {"available": False, "prob_synthetic": 0.5}
+
+async def _run_pretrained(y: np.ndarray, sr: int) -> Dict[str, Any]:
+    return await run_in_threadpool(_run_pretrained_sync, y, sr)
 
 async def _run_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[str, Any]:
     key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -299,11 +278,13 @@ async def _run_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[
 # --------------------------------------------------------------
 
 async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str] = None) -> Dict[str, Any]:
-    load_model()
+    # Move blocking model load and librosa load to thread pool
+    await run_in_threadpool(load_model)
     try:
-        y, sr = librosa.load(_io.BytesIO(file_bytes), sr=16000, mono=True)
+        # librosa.load is blocking
+        y, sr = await run_in_threadpool(librosa.load, _io.BytesIO(file_bytes), sr=16000, mono=True)
     except Exception as e:
-        return {"verdict": "ERROR", "warning": str(e)}
+        return {"verdict": "ERROR", "warning": f"Audio decode failed: {e}"}
 
     # WhatsApp & Bandwidth
     wa_match, _ = _is_whatsapp_audio(filename, y, sr)
@@ -315,11 +296,11 @@ async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str]
     # VAD
     has_voice, vad_reason = _detect_voice_activity(y, sr)
     if not has_voice:
-        return {"verdict": "UNCERTAIN", "confidence": 0.0, "low_confidence": True, "warning": vad_reason}
+        return {"final_label": "REAL", "verdict": "REAL", "confidence": 0.0, "low_confidence": True, "warning": vad_reason}
 
     # Run Tiers
     local_result = await _run_local_detector(y, sr)
-    hf_result = _run_pretrained(y, sr)
+    hf_result = await _run_pretrained(y, sr)
     gem_result = await _run_gemini(file_bytes, api_key)
 
     # Normalize Gemini
@@ -331,7 +312,11 @@ async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str]
     model_inputs = ForensicEngine.normalize_outputs(
         local=local_result, wav2vec=hf_result, gemini={"ai_probability": gem_p, "confidence": gem_c}
     )
-    decision = ForensicEngine.compute_decision(model_inputs)
+    # Pass through the local signal for Weighted Distribution
+    model_inputs["local"]["biometric_raw"] = local_result.get("biometric_raw", 0.0)
+    
+    duration = float(len(y) / sr)
+    decision = ForensicEngine.compute_decision(model_inputs, is_whatsapp=wa_match, duration=duration)
     explanation = ForensicEngine.generate_explanation(decision["final_label"], model_inputs, decision)
 
     return {
@@ -346,7 +331,7 @@ async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str]
         "audio_info":         {"narrowband": is_narrowband, "duration_s": round(len(y)/sr, 2)},
         "model_results": {
             **model_inputs,
-            "variance":       decision["variance"],
-            "weights":        decision["weights"]
+            "decision_path":  decision["decision_path"],
+            "raw_distributions": decision["raw_distributions"]
         }
     }

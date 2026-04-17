@@ -67,7 +67,14 @@ def _root_domain(hostname: str) -> str:
 
 
 def get_brand_impersonation(hostname: str) -> Dict[str, Any]:
-    hostname_clean = hostname.lower().replace("www.", "")
+    # Ensure we have a clean hostname even if it contains a path or raw URL
+    if "://" in hostname:
+        hostname = urllib.parse.urlparse(hostname).netloc
+    
+    hostname_clean = hostname.lower().replace("www.", "").split(":")[0]
+    if not hostname_clean:
+        return {"impersonates": None, "weight": 0}
+        
     root = _root_domain(hostname_clean)
     if root in LEGITIMATE_BRAND_DOMAINS:
         return {"impersonates": None, "weight": 0}
@@ -166,6 +173,21 @@ def score(
     except Exception:
         pass
 
+    # 0. Global Whitelist Override: If explicitly whitelisted, risk is zero.
+    if is_whitelisted:
+        return {
+            "url":          url,
+            "score":        0.0,
+            "verdict":      "SAFE",
+            "breakdown": {
+                "gsb": 0.0, "urlhaus": 0.0, "domain": 0.0, "url_pattern": 0.0, "domain_age": 0.0, "impersonation": 0.0,
+            },
+            "color":             "#22c55e",
+            "should_block":      False,
+            "authoritative_hit": False,
+            "reasons":           ["✓ Verified Official Brand Domain"],
+        }
+
     gsb_threat = gsb_result.get("is_threat", False)
     uh_threat  = uh_result.get("is_phishing", False)
 
@@ -218,13 +240,13 @@ def score(
     # Authoritative hit (GSB/URLHaus) is the primary signal
     auth_val = max(gsb_contrib, uh_contrib)
     
-    # Rebalanced Weights for a more even distribution
-    # Authority 25%, Reputation 15%, Pattern 20%, Age 20%, Impersonation 20%
+    # Rebalanced Weights: Give more priority to Domain Authenticity
+    # Authority 25%, Reputation 20%, Pattern 10%, Age 15%, Impersonation 30%
     c_auth    = auth_val * 0.25
-    c_domain  = domain_contribution * 0.15
-    c_pattern = url_pattern_score   * 0.20
-    c_age     = age_score           * 0.20
-    c_imp     = impersonation_score * 0.20
+    c_domain  = domain_contribution * 0.20
+    c_pattern = url_pattern_score   * 0.10
+    c_age     = age_score           * 0.15
+    c_imp     = impersonation_score * 0.30
     
     # Preliminary weighted sum
     weighted_sum = c_auth + c_domain + c_pattern + c_age + c_imp
@@ -240,15 +262,23 @@ def score(
     else:
         # Dynamic bonuses for suspicious combinations
         bonus = 0.0
-        if impersonation_score > 0:
+        if impersonation_score >= 70:
+            # SMOKING GUN: Clear impersonation should almost always be a blockable threat
+            # Add a significant base floor so it crosses the 60/80 thresholds
+            bonus += 40.0
+        elif impersonation_score > 0:
             if url_pattern_score > 30: bonus += 15.0
             if age_score > 30: bonus += 15.0
         
         final_score = min(100.0, weighted_sum + bonus)
         
-        # Floor for caution
-        if (impersonation_score > 0 or age_score > 40) and final_score < 35:
-            final_score = 35.0
+        # Absolute Floor for Safety: Clear brand risks or very new domains
+        if impersonation_score >= 80:
+             final_score = max(final_score, 85.0) # Force BLOCKED
+        elif impersonation_score >= 60:
+             final_score = max(final_score, 65.0) # Force DANGER
+        elif age_score > 80:
+             final_score = max(final_score, 45.0) # Force CAUTION
     
     # 3. Normalization logic: Scale components to reach final_score
     if final_score > 0:

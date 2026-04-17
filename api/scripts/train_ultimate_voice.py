@@ -78,6 +78,7 @@ def train_ultimate_model():
     # 2. Load Kaggle Celebrity Samples (Segmented)
     logger.info("Step 2: Processing Kaggle Celebrity Dataset...")
     SEGMENT_SEC = 5.0
+    MAX_FILES_PER_CLASS = 15
     audio_root = os.path.join(KAGGLE_PATH, "KAGGLE", "AUDIO")
     classes = {"REAL": 0, "FAKE": 1}
     
@@ -85,7 +86,7 @@ def train_ultimate_model():
         class_dir = os.path.join(audio_root, class_name)
         if not os.path.exists(class_dir): continue
         
-        files = [f for f in os.listdir(class_dir) if f.endswith('.wav')]
+        files = [f for f in os.listdir(class_dir) if f.endswith('.wav')][:MAX_FILES_PER_CLASS]
         for fname in tqdm(files, desc=f"Kaggle {class_name}"):
             fpath = os.path.join(class_dir, fname)
             try:
@@ -161,7 +162,15 @@ def train_ultimate_model():
     X_train_s = scaler.fit_transform(X_train)
     X_test_s  = scaler.transform(X_test)
 
-    model = GradientBoostingClassifier(n_estimators=400, max_depth=6, learning_rate=0.05, subsample=0.8, random_state=42)
+    # Using a more robust model for high-dimensional feature space (802 dimensions)
+    # n_estimators increased for latent complexity, subsample added for regularization
+    model = GradientBoostingClassifier(
+        n_estimators=500, 
+        max_depth=5, 
+        learning_rate=0.04, 
+        subsample=0.7, 
+        random_state=42
+    )
     model.fit(X_train_s, y_train)
 
     # Evaluation

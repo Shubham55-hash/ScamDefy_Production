@@ -49,16 +49,32 @@ export default function App() {
   const isAdmin = user?.role === 'ADMIN';
 
   const [screen, setScreen] = useState<Screen>(() => {
+    // 1. Priority: URL Parameter (e.g., ?screen=neural_net)
     const params = new URLSearchParams(window.location.search);
-    return params.get('screen') as Screen || 'landing';
+    const fromUrl = params.get('screen') as Screen;
+    if (fromUrl) return fromUrl;
+
+    // 2. Fallback: LocalStorage (persists across refreshes)
+    const fromStorage = localStorage.getItem('sd_last_screen') as Screen;
+    if (fromStorage) return fromStorage;
+
+    return 'landing';
   });
 
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
-  const [visited, setVisited] = useState<Set<Screen>>(new Set(['landing', 'dashboard']));
+  const [visited, setVisited] = useState<Set<Screen>>(() => new Set(['landing', screen]));
 
   const navigate = (s: Screen) => {
     setScreen(s);
     setVisited(prev => { const n = new Set(prev); n.add(s); return n; });
+    
+    // Synchronize with URL without full page reload
+    const url = new URL(window.location.href);
+    url.searchParams.set('screen', s);
+    window.history.replaceState({}, '', url.toString());
+
+    // Synchronize with LocalStorage for session persistence
+    localStorage.setItem('sd_last_screen', s);
   };
 
   useEffect(() => {
@@ -87,7 +103,7 @@ export default function App() {
       {isDesktop && screen !== 'landing' && (
         <aside className="fixed top-0 left-0 h-screen w-64 z-50 flex flex-col glass-panel border-r border-white/5 bg-slate-950/80">
           <div className="p-8 border-b border-white/5">
-            <button onClick={() => navigate('dashboard')} className="flex items-center space-x-3 cursor-pointer group">
+            <button onClick={() => navigate('landing')} className="flex items-center space-x-3 cursor-pointer group">
               <div className="w-9 h-9 border-2 border-electricCyan hexagon-clip flex items-center justify-center animate-pulse shrink-0">
                 <div className="w-3.5 h-3.5 bg-electricCyan hexagon-clip" />
               </div>
@@ -125,11 +141,11 @@ export default function App() {
                   <p className="text-[10px] uppercase tracking-widest opacity-50 mb-1">{user?.name || 'IDENTITY'}</p>
                   <p className="text-[9px] text-electricCyan font-mono uppercase">{user?.role || 'GUEST'}_NODE</p>
                </div>
-               <button onClick={logout} className="text-[9px] font-mono text-white/20 hover:text-white transition-colors">LOGOUT</button>
+               <button onClick={logout} className="text-[9px] font-mono text-white/20 hover:text-white transition-colors cursor-pointer">LOGOUT</button>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 bg-electricCyan rounded-full animate-pulse shadow-[0_0_8px_#00f2ff]" />
-              <p className="text-xs text-electricCyan font-mono">SECURE // ENCRYPTED</p>
+              <p className="text-[10px] text-electricCyan font-mono">SECURE // ENCRYPTED</p>
             </div>
           </div>
         </aside>
