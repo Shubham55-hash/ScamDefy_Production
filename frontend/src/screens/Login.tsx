@@ -81,6 +81,11 @@ export function Login() {
           >
             {loading ? 'AUTHENTICATING...' : 'ENCRYPT & ENTER'}
           </button>
+
+          <div className="mt-4 rounded-2xl border border-electricCyan/10 bg-white/5 p-4 text-left text-[11px] text-white/70 font-mono">
+            <p className="font-semibold text-white/90">Demo credentials</p>
+            <p>Use <span className="text-electricCyan">user@scamdefy.io</span> / <span className="text-electricCyan">user123</span> for reviewer access.</p>
+          </div>
         </form>
 
         <div className="mt-8 text-center">
