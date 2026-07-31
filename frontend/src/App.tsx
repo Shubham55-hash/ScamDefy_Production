@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from './store/appStore';
 import type { Screen } from './types';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Screens
 import { LandingPage } from './screens/LandingPage';
@@ -98,6 +99,7 @@ export default function App() {
     <div className="min-h-screen bg-charcoal text-white selection:bg-electricCyan/30">
       <BgAmbience />
       <ToastContainer />
+      <SpeedInsights />
 
       {/* Desktop side nav */}
       {isDesktop && screen !== 'landing' && (
