@@ -266,6 +266,14 @@ class LocalVoiceDetector:
         if not os.path.exists(path): path = PRO_MODEL_PATH if os.path.exists(PRO_MODEL_PATH) else STD_MODEL_PATH
         if os.path.exists(path):
             try:
+                # Compatibility fallback: map CyHalfBinomialLoss from Cython _loss module
+                try:
+                    import sklearn._loss._loss as _closs
+                    import sys
+                    if "_loss" not in sys.modules:
+                        sys.modules["_loss"] = _closs
+                except Exception:
+                    pass
                 with open(path, "rb") as f: payload = pickle.load(f)
                 self.version, self.model, self.threshold = payload.get("version", "1.0"), payload.get("model"), payload.get("threshold", 0.5)
                 self.schema, self.baseline = payload.get("feature_schema"), payload.get("baseline_stats")

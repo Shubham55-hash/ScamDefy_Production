@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from typing import Optional
 import numpy as np
 import io
@@ -16,17 +16,10 @@ ACCEPTED_FORMATS = {'.wav', '.mp3', '.ogg', '.m4a', '.webm', '.aac', '.flac', '.
 
 
 @router.post("/voice/analyze")
-async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = Form(None)):
+async def process_voice(request: Request, audio: UploadFile = File(...), api_key: Optional[str] = Form(None)):
     # Log incoming request for Antigravity tracing
     from services.voice_service import logger as vlogger
     vlogger.info(f"[Voice] Processing upload: {audio.filename} (type: {audio.content_type})")
-
-    # Return 503 while the pretrained model is still being downloaded.
-    if voice_service._model_loading and not voice_service.pretrained_available:
-        raise HTTPException(
-            status_code=503,
-            detail="Model is loading, please retry in a few seconds",
-        )
 
     if not audio.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
@@ -46,20 +39,31 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
-    result = await analyze_audio(file_bytes, audio.filename, api_key)
+    # Return 503 while the pretrained model is still being downloaded.
+    if voice_service._model_loading and not voice_service.pretrained_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Model is loading, please retry in a few seconds",
+        )
+
+    session_id = request.client.host if request.client else "default_session"
+    result = await analyze_audio(file_bytes, audio.filename, api_key, session_id, mode="upload")
     
     # Check for errors in result (though analyze_audio usually raises or returns verdict)
     if result.get("verdict") == "ERROR" or result.get("final_label") == "ERROR":
         raise HTTPException(status_code=500, detail=result.get("warning") or "Analysis failed")
 
     final_label = result.get("final_label", "UNKNOWN")
+    # AntiGravity Label Mapping: SYNTHETIC -> AI for display
+    display_label = "AI" if final_label == "SYNTHETIC" else final_label
+
     confidence  = float(result.get("confidence", 0.0))
     explanation = result.get("explanation") or "Analysis inconclusive"
     
     request_id = str(uuid.uuid4())
 
     # Log to Surveillance if synthetic
-    if final_label == "SYNTHETIC":
+    if final_label in ["SYNTHETIC", "AI"]:
         log_threat(
             id=request_id,
             url=f"Voice Payload: {audio.filename}",
@@ -77,15 +81,16 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
         # --- AntiGravity Strict Spec (Nested) ---
         "antigravity": {
             "audio_id":       request_id,
-            "final_label":    final_label,
+            "final_label":    display_label,
             "final_ai_score": result.get("final_ai_score", 0.0),
             "confidence":     confidence,
             "explanation":    explanation
         },
         
         # --- Production Metadata ---
-        "verdict":          final_label, 
-        "confidence":       confidence,   # RESTORED for backward compat
+        "verdict":          display_label,
+        "status":           "success", # Add status for frontend consistency
+        "confidence":       confidence,
         "reason":           explanation,
         "confidence_pct":   round(confidence * 100, 1),
         "model_loaded":     voice_service.pretrained_available,
@@ -93,7 +98,10 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
         "low_confidence":   result.get("low_confidence", False),
         "transcript":       result.get("transcript", ""),
         "audio_info":       result.get("audio_info", {}),
-        "model_results":    result.get("model_results", {})
+        "model_results":    {
+            **result.get("model_results", {}),
+            "verdict": display_label # Ensure internal model_results also use display label
+        }
     }
 
 

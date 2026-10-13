@@ -11,7 +11,8 @@ import re
 import logging
 import threading
 import traceback
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from collections import deque, defaultdict
 
 from starlette.concurrency import run_in_threadpool
 import torch
@@ -39,8 +40,11 @@ DISAGREEMENT_SCALE = 0.20
 
 WHATSAPP_FILENAME_PATTERNS = ["ptt-", "whatsapp", "wa0", "-wa"]
 # --------------------------------------------------------------
-# Model State
+# Model State & Live Buffers
 # --------------------------------------------------------------
+
+# AntiGravity Binary Sentinel State
+_live_buffers = defaultdict(lambda: [])  # List of (timestamp, score)
 
 processor        = None
 pretrained_model = None
@@ -118,54 +122,142 @@ class ForensicEngine:
         }
 
     @staticmethod
-    def compute_decision(models: Dict[str, Dict], is_whatsapp: bool = False, duration: float = 0.0) -> Dict[str, Any]:
-        l = models["local"]
-        neural_score = l["ai_probability"]
-        biometric_raw = l.get("biometric_raw", 0.0)
-        # v4.6 Boundary Calibrated Engine
-        score = neural_score
-        path = "raw_neural"
+    def _process_live(neural_score: float, session_id: str, duration: float, is_whatsapp: bool) -> Dict[str, Any]:
+        """Handles temporal smoothing and windowed decision for live streams."""
+        import time
+        global _live_buffers
+        buffer = _live_buffers[session_id]
+
+        # 1. Append with timestamp guard
+        buffer.append((time.time(), neural_score))
+
+        # 2. Sort and keep sliding window of WINDOW=5
+        WINDOW = 5
+        buffer.sort(key=lambda x: x[0])
+        if len(buffer) > WINDOW:
+            buffer[:] = buffer[-WINDOW:]
+
+        scores = [s for _, s in buffer]
+
+        # --- Decision Logic ---
+        # Keeping existing 0.7 threshold for live stability
+        THRESHOLD = 0.7
         
-        # --- 1. STRONG AI OVERRIDE ---
-        if neural_score > 0.995 and biometric_raw < -0.50:
-            label = "SYNTHETIC"
-            path = "strong_ai_override"
+        if len(scores) < WINDOW:
+            # Fallback: Best effort using latest score
+            last_score = scores[-1]
+            label = "SYNTHETIC" if last_score >= THRESHOLD else "REAL"
+            path = "live_buffering_decisive"
         else:
-            # 2. Apply soft human correction (REDUCED)
-            if biometric_raw < -0.35:
-                score -= 0.15
-                path = "neural_with_biometric_penalty"
-                
-            # 3. Clamp
-            score = max(0.0, min(1.0, score))
+            # Final Windowed average
+            avg = sum(scores) / WINDOW
+            label = "SYNTHETIC" if avg >= THRESHOLD else "REAL"
+            path = "live_window_quorum"
             
-            # --- 4. CLEAN HUMAN PROTECTION ---
-            if neural_score > 0.98 and biometric_raw > -0.10:
-                label = "REAL"
-                path = "clean_human_protection"
-            elif score >= 0.85:
-                label = "SYNTHETIC"
-                path = "normal_synth"
-            else:
-                label = "REAL"
-                path = "normal_real"
+        print(f"[SENTINEL] {session_id} | Window: {len(scores)} | Last: {scores[-1]:.3f} | Result: {label}")
         
-        # v4.4 Diagnostic Print
-        print(f"\n[DEBUG v4.4] PATH: {path} | Neural: {neural_score:.4f} | Biometric: {biometric_raw:.4f} | Final Score: {score:.4f} | -> {label}")
-            
         return {
             "final_label": label,
-            "final_ai_score": round(score, 4),
-            "confidence": round(l["confidence"], 4),
+            "final_ai_score": round(scores[-1], 4),
+            "confidence": 0.85,
             "decision_path": path,
             "raw_distributions": {
-                "neural_raw": neural_score,
-                "biometric_raw": biometric_raw,
-                "final_score": score
+                "last_score": scores[-1]
             },
             "is_whatsapp": is_whatsapp,
             "duration": duration
         }
+
+    @staticmethod
+    def _process_upload(models: Dict[str, Dict], duration: float, is_whatsapp: bool) -> Dict[str, Any]:
+        """Handles v3.3 forensic decision logic for audio analysis."""
+        l = models.get("local", {})
+        neural_score = float(l.get("ai_probability", 0.5))
+        biometric_raw = float(l.get("biometric_raw", 0.0))
+        biometric_norm = (biometric_raw + 1.0) / 2.0
+
+        w = models.get("wav2vec", {})
+        wav2vec_score = float(w.get("ai_probability", 0.5))
+
+        g = models.get("gemini", {})
+        gemini_score = float(g.get("ai_probability", 0.5))
+
+        # 1. Neural Override: neural_score > 0.92 triggers SYNTHETIC override
+        if neural_score > 0.92:
+            final_label = "SYNTHETIC"
+            decision_path = "neural_override"
+            final_ai_score = neural_score
+            confidence = float(l.get("confidence", 0.95))
+            weighted = neural_score
+        else:
+            # 2. Weighted Fusion (0.5 Local, 0.3 Wav2Vec, 0.2 Biometric)
+            weighted = 0.5 * neural_score + 0.3 * wav2vec_score + 0.2 * biometric_norm
+            final_ai_score = weighted
+
+            if weighted >= AI_BAND:
+                final_label = "SYNTHETIC"
+                decision_path = "weighted_consensus"
+            elif weighted <= HUMAN_BAND:
+                final_label = "REAL"
+                decision_path = "human_band"
+            else:
+                final_label = "UNCERTAIN"
+                decision_path = "uncertain_band"
+
+            avg_conf = (
+                float(l.get("confidence", 0.9)) +
+                float(w.get("confidence", 0.9)) +
+                float(g.get("confidence", 0.8))
+            ) / 3.0
+
+            # 3. Confidence smoothing within 0.05 margin of AI_BAND (0.68)
+            margin = abs(weighted - AI_BAND)
+            if margin < 0.05:
+                penalty = 0.5 + margin * 10.0
+                confidence = avg_conf * penalty
+            else:
+                confidence = avg_conf
+
+        return {
+            "final_label": final_label,
+            "final_ai_score": round(final_ai_score, 4),
+            "confidence": round(confidence, 4),
+            "decision_path": decision_path,
+            "raw_distributions": {
+                "neural_raw": neural_score,
+                "biometric_raw": biometric_raw,
+                "biometric_norm": round(biometric_norm, 4),
+                "wav2vec": wav2vec_score,
+                "gemini": gemini_score,
+                "weighted_score": round(weighted, 4),
+                "final_score": round(final_ai_score, 4)
+            },
+            "is_whatsapp": is_whatsapp,
+            "duration": duration
+        }
+
+    @staticmethod
+    def compute_decision(models: Dict[str, Dict], is_whatsapp: bool = False, duration: float = 0.0, session_id: str = "default_session", mode: str = "upload") -> Dict[str, Any]:
+        # --- 0. Signal Quality Gate ---
+        local_model = models.get("local", {})
+        if (0.0 < duration < 2.0) or not local_model or "ai_probability" not in local_model:
+            return {
+                "final_label": "UNCERTAIN",
+                "final_ai_score": 0.5,
+                "confidence": 0.5,
+                "decision_path": "signal_quality_gate",
+                "raw_distributions": {},
+                "is_whatsapp": is_whatsapp,
+                "duration": duration
+            }
+
+        # --- 1. Mode Dispatcher ---
+        if mode == "live" or (mode == "auto" and 0.0 < duration < 2.5):
+            neural_score = float(local_model.get("ai_probability", 0.5))
+            return ForensicEngine._process_live(neural_score, session_id, duration, is_whatsapp)
+
+        # Otherwise, run full v3.3 forensic evaluation
+        return ForensicEngine._process_upload(models, duration, is_whatsapp)
 
     @staticmethod
     def generate_explanation(label: str, models: Dict[str, Dict], decision: Dict) -> str:
@@ -277,7 +369,7 @@ async def _run_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[
 # Main Entry Point
 # --------------------------------------------------------------
 
-async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str] = None) -> Dict[str, Any]:
+async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str] = None, session_id: str = "default_session", mode: str = "upload") -> Dict[str, Any]:
     # Move blocking model load and librosa load to thread pool
     await run_in_threadpool(load_model)
     try:
@@ -293,10 +385,21 @@ async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str]
         is_narrowband = float(np.median(rolloff)) < NARROWBAND_ROLLOFF_HZ
     except Exception: is_narrowband = False
 
-    # VAD
-    has_voice, vad_reason = _detect_voice_activity(y, sr)
-    if not has_voice:
-        return {"final_label": "REAL", "verdict": "REAL", "confidence": 0.0, "low_confidence": True, "warning": vad_reason}
+    # Silence Handling (Binary Guard)
+    is_silent = np.abs(y).mean() < 0.01
+
+    if is_silent:
+        # In live mode, we treat silence as REAL instead of LISTENING for binary stability
+        if 0.0 < (len(y)/sr) < 2.5:
+            return {
+                "final_label": "REAL",
+                "verdict": "REAL",
+                "confidence": 0.5,
+                "reason": "Stable silence detected",
+                "metadata": {"silent": True},
+                "raw_distributions": {}
+            }
+        return {"final_label": "REAL", "verdict": "REAL", "confidence": 0.0, "low_confidence": True, "warning": "Audio too quiet"}
 
     # Run Tiers
     local_result = await _run_local_detector(y, sr)
@@ -316,7 +419,7 @@ async def analyze_audio(file_bytes: bytes, filename: str, api_key: Optional[str]
     model_inputs["local"]["biometric_raw"] = local_result.get("biometric_raw", 0.0)
     
     duration = float(len(y) / sr)
-    decision = ForensicEngine.compute_decision(model_inputs, is_whatsapp=wa_match, duration=duration)
+    decision = ForensicEngine.compute_decision(model_inputs, is_whatsapp=wa_match, duration=duration, session_id=session_id, mode=mode)
     explanation = ForensicEngine.generate_explanation(decision["final_label"], model_inputs, decision)
 
     return {

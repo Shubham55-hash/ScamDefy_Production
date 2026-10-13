@@ -25,6 +25,11 @@ async def lifespan(app: FastAPI):
     await urlhaus_service.health_check()
     
     # Vercel Serverless note: The voice_service has lazy-loading built-in during inference.
+    # But for a live-streaming workflow, we trigger the load immediately in the background:
+    import threading
+    from services import voice_service
+    threading.Thread(target=voice_service.load_model, daemon=True).start()
+
     yield
 
 app = FastAPI(title="ScamDefy Backend", version="1.0.0", lifespan=lifespan)
