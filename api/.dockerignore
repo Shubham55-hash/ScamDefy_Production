@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────
+# ScamDefy API .dockerignore
+# Optimizes Docker build context by excluding dev-only assets,
+# offline training data, caches, temporary files, and secrets.
+# ─────────────────────────────────────────────────────────────
+
+# 1. Environment & Credentials (NEVER copy secrets into image)
+.env
+.env.*
+.env.local
+!.env.example
+*.pem
+*.key
+*.cert
+
+# 2. Git & Version Control
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# 3. Python Caches & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+htmlcov/
+
+# 4. Offline Training Datasets & Heavy Artifacts (Not needed for runtime inference)
+data/asvspoof_cache/
+data/actual_samples/
+data/Fake/
+data/Real/
+data/*.npy
+data/intermediate_cache.pkl
+data/intermediate_*.pkl
+data/*.log
+data/cache/
+data/downloads/
+
+# 5. Model Backups & Corrupted Checkpoints (Keep production models only)
+models/*.pkl.bak
+models/*.pkl.bad
+models/*_sensitized.pkl
+
+# 6. Offline Scripts & Scratch Files
+scripts/
+scratch/
+tmp/*
+!tmp/.gitkeep
+
+# 7. Local Test & Diagnostic Scripts (tests/ directory is preserved for container testing)
+test_*.py
+debug_*.py
+verify_*.py
+out.json
+*.mp3
+*.wav
+
+# 8. IDE & Operating System Artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.bak
+*.tmp

@@ -56,3 +56,5 @@ tmp/
 test.wav
 *.bak
 *.tmp
+*.npy
+out.json

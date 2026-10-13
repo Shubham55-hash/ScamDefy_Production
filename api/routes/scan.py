@@ -157,31 +157,64 @@ async def run_scan_pipeline(url: str, bypass_cache: bool = False, gsb_key: str =
         result["community_reports"] = get_report_counts(url)
         return result
 
-    if "scamdefy-test-block.com" in url:
+    # Demo URLs for Presentation / Judges
+    if "demo-level" in url or "scamdefy-test-block.com" in url:
+        if "demo-level0.com" in url:
+            score, verdict, risk = 10.0, "SAFE", "LOW"
+            msg = "Trace risk threshold. (Warn by Aggressive only)"
+            flags = ["HYPHEN_ABUSE"]
+            demo_age = 4500
+        elif "demo-level1.com" in url:
+            score, verdict, risk = 25.0, "SAFE", "LOW"
+            msg = "Low risk threshold. (Blocked by Aggressive only)"
+            flags = ["SUSPICIOUS_TLD"]
+            demo_age = 2200
+        elif "demo-level2.com" in url:
+            score, verdict, risk = 45.0, "SUSPICIOUS", "MEDIUM"
+            msg = "Medium risk threshold. (Blocked by Balanced & Aggressive)"
+            flags = ["NEW_DOMAIN", "SUSPICIOUS_TLD"]
+            demo_age = 2 # Shows 2D OLD warning
+        elif "demo-level3.com" in url:
+            score, verdict, risk = 65.0, "HIGH", "HIGH"
+            msg = "High risk threshold. (Warn on Conservative, Blocked by others)"
+            flags = ["TYPOSQUATTING", "BRAND_IMPERSONATION"]
+            demo_age = 1500
+        elif "scamdefy-test-block.com" in url:
+            score, verdict, risk = 100.0, "BLOCKED", "CRITICAL"
+            msg = "Extreme risk threshold. (Blocked by ALL modes)"
+            flags = ["URLHAUS_MALWARE", "GSB_THREAT"]
+            demo_age = 500
+        else: # demo-level4.com
+            score, verdict, risk = 95.0, "BLOCKED", "CRITICAL"
+            msg = "Extreme risk threshold. (Blocked by ALL modes)"
+            flags = ["URLHAUS_MALWARE", "GSB_THREAT"]
+            demo_age = 500
+
         return {
             "id":           str(uuid.uuid4()),
             "url":          url,
             "final_url":    url,
             "expanded":     False,
-            "score":        100.0,
-            "verdict":      "BLOCKED",
-            "risk_level":   "CRITICAL",
-            "scam_type":    "Phishing Test Detected",
-            "color":        "#ef4444",
-            "should_block": True,
+            "score":        score,
+            "verdict":      verdict,
+            "risk_level":   risk,
+            "scam_type":    "Presentation Demo Module",
+            "color":        "#ef4444" if score > 50 else "#f59e0b",
+            "should_block": score >= 80,
             "breakdown": {
-                "gsb": 0.0, "urlhaus": 100.0, "domain": 0.0, "url_pattern": 0.0, "domain_age": 0.0, "impersonation": 0.0, "heuristics": 0.0, "virustotal": 0.0
+                "gsb": 0.0, "urlhaus": score, "domain": 0.0, "url_pattern": 0.0, "domain_age": 0.0, "impersonation": 0.0, "heuristics": 0.0, "virustotal": 0.0
             },
-            "domain_age": { "age_days": 2, "registered_on": "2026-03-14", "source": "mock" },
+            "domain_age": { "age_days": demo_age, "registered_on": f"Mock_{demo_age}_days_ago", "source": "mock" },
             "signals": [
-                {"name": "URLhaus Malware", "points": 100, "severity": "CRITICAL"},
+                {"name": f, "points": score, "severity": risk} for f in flags
             ],
-            "explanation":  "(Test) This is a demonstration of the ScamDefy blocking feature.",
-            "reasons":      ["🚫 Identified as a test phishing URL by ScamDefy local mock"],
-            "flags":        ["URLHAUS_MALWARE"],
+            "explanation":  f"(Demo URL) {msg}",
+            "reasons":      [f"🚫 Mock generated for judge presentation. Score forced to {score}."],
+            "flags":        flags,
             "cached":       False,
             "scan_time_ms": 10,
             "timestamp":    datetime.now(timezone.utc).isoformat(),
+            "community_reports": get_report_counts(url),
         }
 
     expand_result = await expand_url_backend(url)
@@ -403,10 +436,10 @@ async def analyze_message(req: MessageRequest):
     user_alert = ai_result.get("explanation", "No immediate scam signals detected.")
     signals_triggered = [{"name": s, "points": 20, "severity": "MEDIUM"} for s in ai_result.get("signals", [])]
     
-    # Merge rule-based signals and boost score if AI returned nothing (quota hit)
+    # Merge rule-based signals and boost score if AI missed the severity
     signals_triggered.extend(rule_signals_found)
-    if not ai_result.get("signals") and rule_signals_found:
-        # AI was unavailable — use rule-based score boost and set risk level
+    if rule_signals_found:
+        # Boost rule-based score and set risk level
         final_score = min(final_score + rule_score_boost, 100.0)
         
         # Recalculate risk level based on rule score
@@ -418,6 +451,10 @@ async def analyze_message(req: MessageRequest):
             risk_level = "SUSPICIOUS"
             
         scam_category = rule_signals_found[0]["name"] if rule_signals_found else "Social Engineering"
+
+        # Completely overwrite the explanation if we just boosted the score into a danger zone
+        if final_score >= 30:
+            user_alert = f"Detected high-risk phrases commonly associated with {scam_category}. Do not share sensitive information."
 
     # Overlay Link Results if a malicious link is found
     malicious_link = next((l for l in link_results if l.get("score", 0) > 40), None)
@@ -458,13 +495,19 @@ async def analyze_message(req: MessageRequest):
             signals=[s["name"] for s in signals_triggered]
         )
 
+    raw_rec = str(ai_result.get("recommendation") or "").strip()
+    if not raw_rec or raw_rec.lower() in ("none", "null", "n/a", "no recommendation", "none.") or len(raw_rec) <= 5:
+        recommendation = "Verify sender identity and never click unexpected links or share sensitive codes."
+    else:
+        recommendation = raw_rec
+
     return {
         "scan_type":         "message",
         "risk_level":        risk_level,
         "risk_score":        final_score,
         "scam_category":     scam_category,
         "signals_triggered": signals_triggered,
-        "recommendation":    ai_result.get("recommendation") or "Verify sender identity and never click unexpected links or share sensitive codes.",
+        "recommendation":    recommendation,
         "user_alert":        user_alert,
         "link_count":        len(found_urls)
     }
@@ -506,16 +549,25 @@ class OverrideRequest(BaseModel):
 @router.post("/overrides")
 async def set_url_override(req: OverrideRequest):
     """Developer endpoint to manually force a URL's verdict."""
+    from utils.overrides_manager import _normalize_url
+    domain_key = _normalize_url(req.url)
+
     if req.verdict.upper() == "CLEAR":
         overrides_manager.delete_override(req.url)
-        return {"status": "cleared", "url": req.url}
+    else:
+        overrides_manager.set_override(req.url, req.verdict.upper())
+
+    # Properly clear cache for ALL scanned URLs matching this domain
+    keys_to_delete = [
+        cached_url for cached_url in scan_cache.keys()
+        if _normalize_url(cached_url) == domain_key
+    ]
     
-    overrides_manager.set_override(req.url, req.verdict.upper())
-    # Clear cache for this URL so the new verdict is seen immediately
-    if req.url in scan_cache:
-        del scan_cache[req.url]
+    for k in keys_to_delete:
+        del scan_cache[k]
     
-    return {"status": "set", "url": req.url, "verdict": req.verdict.upper()}
+    status = "cleared" if req.verdict.upper() == "CLEAR" else "set"
+    return {"status": status, "url": req.url, "verdict": req.verdict.upper(), "cleared_cache_entries": len(keys_to_delete)}
 
 
 @router.get("/overrides/all")

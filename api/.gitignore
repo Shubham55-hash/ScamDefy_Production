@@ -13,3 +13,6 @@ models/
 scratch/
 task.md
 *.log
+out.json
+*.mp3
+*.wav
