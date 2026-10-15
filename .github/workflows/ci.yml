@@ -218,3 +218,15 @@ jobs:
           echo "| digest | \`$DIGEST\` |" >> $GITHUB_STEP_SUMMARY
           echo "| platform | \`linux/amd64\` |" >> $GITHUB_STEP_SUMMARY
           echo "| triggered by | \`${{ github.actor }}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Trigger Render deployment
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "Render deploy hook secret is missing"
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --request POST \
+            "$RENDER_DEPLOY_HOOK_URL"
