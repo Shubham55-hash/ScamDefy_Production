@@ -8,6 +8,14 @@
  */
 
 (function() {
+  // Manifest match patterns can't pin a port, so restrict local hosts to the Vite dev port here.
+  const TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://scam-defy-production.vercel.app'
+  ];
+  if (!TRUSTED_ORIGINS.includes(window.location.origin)) return;
+
   console.log('[ScamDefy] SyncSettings content script loaded.');
 
   const readJson = (key) => {

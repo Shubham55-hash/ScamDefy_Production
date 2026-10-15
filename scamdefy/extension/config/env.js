@@ -8,8 +8,8 @@ const ENV = {
   // Dashboard origins allowed to push settings into the extension.
   // Keep in sync with the syncSettings.js content_scripts matches in manifest.json.
   DASHBOARD_ORIGINS: [
-    /^http:\/\/localhost(:\d+)?$/,
-    /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+    /^http:\/\/localhost:5173$/,       // Vite dev server
+    /^http:\/\/127\.0\.0\.1:5173$/,
     /^https:\/\/scam-defy-production\.vercel\.app$/
   ],
   RISK_THRESHOLDS: {
