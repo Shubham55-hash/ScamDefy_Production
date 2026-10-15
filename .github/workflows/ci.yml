@@ -6,11 +6,19 @@ on:
   pull_request:
     branches: ["main", "develop"]
 
+# ── Workflow-level permissions ────────────────────────────────────────────────
+# Set the minimum required at workflow level.
+# The publish job overrides this with packages:write — no other job holds it.
+permissions:
+  contents: read
+
 jobs:
   # ─── Job 1: Python Tests ──────────────────────────────────────────────────────
   test:
     name: Run Python Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # checkout only — no registry access
     defaults:
       run:
         working-directory: api
@@ -46,10 +54,14 @@ jobs:
         run: pytest tests/ -v
 
   # ─── Job 2: Docker Build & Smoke Test ─────────────────────────────────────────
+  # Runs on every push and pull request. Builds locally (no registry push),
+  # starts a container, and verifies both API endpoints respond correctly.
   docker-build:
     name: Build & Smoke Test Docker Image
     runs-on: ubuntu-latest
-    needs: test          # Only build if unit and integration tests pass
+    needs: test
+    permissions:
+      contents: read   # checkout only — image is loaded locally, never pushed
 
     steps:
       - name: Checkout repository
@@ -66,7 +78,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-      - name: Build Docker image
+      - name: Build Docker image (local load, no push)
         uses: docker/build-push-action@v6
         with:
           context: ./api
@@ -77,13 +89,11 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
-      # Prevent cache from growing indefinitely
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-      # Smoke-test: start the container and verify both endpoints
       - name: Smoke test container
         run: |
           docker run -d \
@@ -97,14 +107,12 @@ jobs:
           echo "Waiting for API to become ready..."
           READY=0
           for i in $(seq 1 30); do
-            # Check if container died prematurely
             if ! docker ps -q --filter "name=scamdefy-ci" --filter "status=running" | grep -q .; then
               echo "ERROR: Container exited unexpectedly."
               docker logs scamdefy-ci
               exit 1
             fi
 
-            # Check root endpoint
             if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
               echo "API root is responding (attempt $i)!"
               READY=1
@@ -119,12 +127,10 @@ jobs:
             exit 1
           fi
 
-          # Verify root response payload
           echo "Verifying root endpoint..."
           ROOT_RESP=$(curl -sf http://localhost:8000/)
           echo "$ROOT_RESP" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['status']=='active', f'Unexpected status: {d}'"
 
-          # Verify health response payload
           echo "Verifying health endpoint..."
           HEALTH_RESP=$(curl -sf http://localhost:8000/api/health)
           echo "$HEALTH_RESP" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['status']=='ok', f'Health check failed: {d}'"
@@ -136,3 +142,78 @@ jobs:
         run: |
           docker stop scamdefy-ci || true
           docker rm scamdefy-ci || true
+
+  # ─── Job 3: Publish to GHCR ───────────────────────────────────────────────────
+  # Runs ONLY on push to main — never on pull requests.
+  # Requires both test and docker-build (smoke test) to pass first.
+  # Uses the built-in GITHUB_TOKEN — no PAT or repository secret required.
+  # Publishes:
+  #   ghcr.io/shubham55-hash/scamdefy-api:latest
+  #   ghcr.io/shubham55-hash/scamdefy-api:sha-<full-commit-sha>
+  publish:
+    name: Publish Image to GHCR
+    runs-on: ubuntu-latest
+    needs: [test, docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read    # checkout
+      packages: write   # push image to GHCR — scoped to this job only
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ hashFiles('api/Dockerfile', 'api/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/shubham55-hash/scamdefy-api
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Build and push image to GHCR (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Publish summary
+        run: |
+          echo "### Image published to GHCR" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| latest | \`ghcr.io/shubham55-hash/scamdefy-api:latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| commit | \`ghcr.io/shubham55-hash/scamdefy-api:sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| platform | \`linux/amd64\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| triggered by | \`${{ github.actor }}\` |" >> $GITHUB_STEP_SUMMARY
