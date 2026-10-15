@@ -50,7 +50,7 @@ export function useVoiceAnalysis() {
       const threat = voiceResultToThreat(data);
       if (threat) logThreat(threat);
 
-      if (data.verdict === 'SYNTHETIC') {
+      if (data.verdict === 'SYNTHETIC' || data.verdict === 'AI') {
         const reason = data.reason ? ` - ${data.reason}` : '';
         addToast('error', `🤖 AI voice detected${reason} (${data.confidence_pct}% confidence)`);
         

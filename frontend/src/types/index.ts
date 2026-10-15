@@ -11,7 +11,7 @@ export interface CommunityReport {
   reason: string;
   timestamp: number;
 }
-export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'UNKNOWN' | 'UNCERTAIN';
+export type VoiceVerdict = 'REAL' | 'SYNTHETIC' | 'AI' | 'UNKNOWN' | 'UNCERTAIN' | 'LISTENING';
 
 export interface SignalItem {
   name: string;

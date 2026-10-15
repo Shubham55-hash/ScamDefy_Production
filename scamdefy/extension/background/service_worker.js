@@ -75,11 +75,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const { url } = message.payload;
     if (url) {
       sessionWhitelist.add(url);
-      // Also add to permanent storage whitelist
-      chrome.storage.local.get(['whitelist'], (res) => {
+      chrome.storage.local.get(['whitelist', 'safetyCircle', 'backendUrl'], (res) => {
         const list = res.whitelist || [];
-        if (!list.includes(url)) {
-          chrome.storage.local.set({ whitelist: [...list, url] });
+        if (!list.includes(url)) chrome.storage.local.set({ whitelist: [...list, url] });
+
+        // Safety Circle Escalation
+        const sc = res.safetyCircle;
+        if (sc && sc.enabled && sc.notifyOnEscalation && sc.guardians && sc.guardians.length > 0) {
+          const userName = sc.shareUserName && sc.userName ? sc.userName : 'A ScamDefy user';
+          fetch(`${res.backendUrl || 'http://localhost:8000'}/api/guardian/notify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guardians: sc.guardians,
+              alert_type: 'URL_SCAN',
+              scam_type: 'User Bypassed Critical Block',
+              risk_score: 99,
+              user_name: userName,
+              is_escalation: true,
+              bypass_cooldown: true
+            })
+          }).catch(err => console.warn('[ScamDefy] Guardian escalation failed:', err));
         }
       });
       // Navigate to the real URL
@@ -101,33 +117,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleSyncSettings(settings) {
-  const { 
-    protectionLevel, 
-    backendUrl 
+  const {
+    protectionLevel,
+    backendUrl,
+    safetyCircle
   } = settings;
 
   const mapping = {
     conservative: { popup: 80, banner: 50 },
-    balanced:     { popup: 40, banner: 30 }, 
+    balanced:     { popup: 40, banner: 30 },
     aggressive:   { popup: 20, banner: 1  }
   };
-  
+
   const thresholds = mapping[protectionLevel] || mapping.balanced;
   POPUP_THRESHOLD  = thresholds.popup;
   BANNER_THRESHOLD = thresholds.banner;
-  
+
   console.log(`[ScamDefy] Protocol updated to ${protectionLevel}: POPUP=${POPUP_THRESHOLD}, BANNER=${BANNER_THRESHOLD}`);
-  
+
   await chrome.storage.local.set({
     protectionLevel,
     popupThreshold:  thresholds.popup,
     bannerThreshold: thresholds.banner,
-    backendUrl
+    backendUrl,
+    safetyCircle: safetyCircle || null
   });
 
   // Re-run health checks now that keys might have changed
   await runAllHealthChecks();
-  
+
   return { success: true };
 }
 
@@ -323,6 +341,42 @@ async function showWarningPage(tabId, url, result) {
       priority: 2,
     });
   } catch (_) {}
+
+  // Safety Circle Notification
+  try {
+    const { safetyCircle, backendUrl } = await chrome.storage.local.get(['safetyCircle', 'backendUrl']);
+    if (safetyCircle && safetyCircle.enabled && safetyCircle.guardians && safetyCircle.guardians.length > 0) {
+      const riskScore = Math.round(result.score || 0);
+      if (riskScore >= (safetyCircle.threshold || 30)) {
+        console.log(`[ScamDefy] Triggering Safety Circle alert for score ${riskScore}...`);
+
+        const userName = safetyCircle.shareUserName && safetyCircle.userName
+          ? safetyCircle.userName
+          : 'A ScamDefy user';
+
+        const payload = {
+          guardians: safetyCircle.guardians,
+          alert_type: 'URL_SCAN',
+          scam_type: result.scam_type || result.verdict || 'Suspicious Website',
+          risk_score: riskScore,
+          user_name: userName,
+          is_escalation: false,
+          bypass_cooldown: false
+        };
+
+        const apiBase = backendUrl || 'http://localhost:8000';
+        fetch(`${apiBase}/api/guardian/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(res => res.json())
+          .then(data => console.log('[ScamDefy] Guardian notify result:', data))
+          .catch(err => console.warn('[ScamDefy] Guardian fetch failed:', err));
+      }
+    }
+  } catch (err) {
+    console.warn('[ScamDefy] Safety Circle notify error:', err);
+  }
 }
 
 // ─── Inject caution banner (score 31–75) ────────────────────────────────────

@@ -34,17 +34,17 @@ export function scanResultToThreat(result: ScanResult): ThreatEntry | null {
 }
 
 export function voiceResultToThreat(result: VoiceResult): ThreatEntry | null {
-  if (result.verdict !== 'SYNTHETIC' && result.verdict !== 'UNCERTAIN') return null;
+  if (result.verdict !== 'SYNTHETIC' && result.verdict !== 'AI' && result.verdict !== 'UNCERTAIN') return null;
   return {
     id: result.id,
     url: `Voice Payload: ${result.id.slice(0,8)}`, // Placeholder
-    risk_level: result.verdict === 'SYNTHETIC' ? 'CRITICAL' : 'MEDIUM',
+    risk_level: (result.verdict === 'SYNTHETIC' || result.verdict === 'AI') ? 'CRITICAL' : 'MEDIUM',
     score: result.confidence_pct,
     scam_type: 'AI Voice Clone',
     explanation: result.reason || 'Detected synthetic audio patterns.',
     signals: ['NEURAL_PROSODY_MATCH', 'AI_ARTIFACT_DETECTED'],
     user_proceeded: false,
-    blocked: result.verdict === 'SYNTHETIC',
+    blocked: result.verdict === 'SYNTHETIC' || result.verdict === 'AI',
     timestamp: result.timestamp,
   };
 }

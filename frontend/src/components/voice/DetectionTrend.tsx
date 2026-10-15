@@ -15,7 +15,7 @@ export function DetectionTrend({ verdicts, height = 120 }: DetectionTrendProps) 
     
     const slice = verdicts.slice(-MAX_POINTS);
     return slice.map(v => {
-      if (v.verdict === 'SYNTHETIC') return v.confidence_pct;
+      if (v.verdict === 'SYNTHETIC' || v.verdict === 'AI') return v.confidence_pct;
       if (v.verdict === 'REAL')      return 100 - v.confidence_pct;
       return 50; // Uncertain
     });
