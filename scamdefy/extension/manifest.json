@@ -23,7 +23,16 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/linkScanner.js", "content/hoverPreview.js", "content/syncSettings.js"],
+      "js": ["content/linkScanner.js", "content/hoverPreview.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://scam-defy-production.vercel.app/*"
+      ],
+      "js": ["content/syncSettings.js"],
       "run_at": "document_idle"
     }
   ],

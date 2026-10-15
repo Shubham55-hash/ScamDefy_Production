@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../api/client';
 import type { CommunityReport } from '../types';
 
@@ -20,19 +20,31 @@ export function CommunityReports() {
   const [reports, setReports] = useState<CommunityReport[]>([]);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  // Tracks the specific "url-verdict" key that is syncing to backend
-  const [syncingKey, setSyncingKey] = useState<string | null>(null);
+  // Tracks the "url-verdict" keys that are syncing to backend
+  const [syncingKeys, setSyncingKeys] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
+
+  // Write sequencing: every directive gets a monotonically increasing id.
+  // Refreshes started before (or during) a newer write must not replace the
+  // optimistic overrides map, and only the latest write per URL may roll back.
+  const writeSeqRef = useRef(0);
+  const pendingWritesRef = useRef(0);
+  const latestSeqByUrlRef = useRef<Record<string, number>>({});
 
   const fetchData = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
+    const seqAtStart = writeSeqRef.current;
+    const hadPendingWrites = pendingWritesRef.current > 0;
     try {
       const [reportsRes, overridesRes] = await Promise.all([
         apiClient.get<CommunityReport[]>('/api/reports/all'),
         apiClient.get<Record<string, string>>('/api/overrides/all')
       ]);
       setReports(reportsRes.data);
-      setOverrides(overridesRes.data);
+      const isStale = hadPendingWrites
+        || pendingWritesRef.current > 0
+        || writeSeqRef.current !== seqAtStart;
+      if (!isStale) setOverrides(overridesRes.data);
       setError(null);
     } catch (err) {
       console.error("Failed to fetch dev data", err);
@@ -48,13 +60,16 @@ export function CommunityReports() {
 
   const handleOverride = async (url: string, verdict: 'SAFE' | 'BLOCKED' | 'CLEAR') => {
     const key = `${url}-${verdict}`;
-    setSyncingKey(key);
+    setSyncingKeys(prev => new Set(prev).add(key));
 
     // ── OPTIMISTIC UPDATE ────────────────────────────────────────
     // Compute the normalized key the backend uses, so we update the
     // right entry in our local `overrides` map immediately.
     const normalizedKey = normalizeUrl(url);
     const previous = overrides[normalizedKey];
+    const seq = ++writeSeqRef.current;
+    latestSeqByUrlRef.current[normalizedKey] = seq;
+    pendingWritesRef.current += 1;
 
     setOverrides(prev => {
       const next = { ...prev };
@@ -68,25 +83,30 @@ export function CommunityReports() {
     // ────────────────────────────────────────────────────────────
     try {
       await apiClient.post('/api/overrides', { url, verdict });
-      // Background sync, no global loader
-      fetchData(false);
     } catch (err) {
       console.error("Override failed", err);
-      // ── ROLLBACK ────────────────────────────────────────────────
-      setOverrides(prev => {
-        const next = { ...prev };
-        if (previous === undefined) {
-          delete next[normalizedKey];
-        } else {
-          next[normalizedKey] = previous;
-        }
+      // ── ROLLBACK (only if no newer directive targeted this URL) ──
+      if (latestSeqByUrlRef.current[normalizedKey] === seq) {
+        setOverrides(prev => {
+          const next = { ...prev };
+          if (previous === undefined) {
+            delete next[normalizedKey];
+          } else {
+            next[normalizedKey] = previous;
+          }
+          return next;
+        });
+        setError(`Failed to apply directive to ${url}. The change has been reverted.`);
+      }
+    } finally {
+      pendingWritesRef.current -= 1;
+      setSyncingKeys(prev => {
+        const next = new Set(prev);
+        next.delete(key);
         return next;
       });
-      setError(`Failed to apply directive to ${url}. The change has been reverted.`);
-    } finally {
-      if (syncingKey === key) {
-          setSyncingKey(null);
-      }
+      // Background sync once all directives have settled, no global loader
+      if (pendingWritesRef.current === 0) fetchData(false);
     }
   };
 
@@ -145,10 +165,10 @@ export function CommunityReports() {
                 </div>
                 <button
                   onClick={() => handleOverride(url, 'CLEAR')}
-                  disabled={syncingKey === `${url}-CLEAR`}
+                  disabled={syncingKeys.has(`${url}-CLEAR`)}
                   className="px-4 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-mono uppercase hover:bg-white/10 transition-all text-white/50 hover:text-white disabled:opacity-50 flex items-center gap-2"
                 >
-                  {syncingKey === `${url}-CLEAR` && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                  {syncingKeys.has(`${url}-CLEAR`) && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
                   Clear Directive
                 </button>
               </div>
@@ -174,7 +194,7 @@ export function CommunityReports() {
       ) : (
         <div className="grid gap-4">
           {reports.map((report) => {
-            const currentOverride = overrides[report.url.replace('www.', '').toLowerCase().replace(/\/$/, '')];
+            const currentOverride = overrides[normalizeUrl(report.url)];
 
             return (
               <div
@@ -226,35 +246,35 @@ export function CommunityReports() {
                     <div className="flex gap-1 p-1 bg-white/5 rounded-lg border border-white/5">
                       <button
                         onClick={() => handleOverride(report.url, 'BLOCKED')}
-                        disabled={syncingKey === `${report.url}-BLOCKED`}
+                        disabled={syncingKeys.has(`${report.url}-BLOCKED`)}
                         className={`px-3 py-1.5 rounded-md text-[9px] font-mono uppercase tracking-widest transition-all flex items-center gap-1.5 ${
                           currentOverride === 'BLOCKED'
                             ? 'bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)]'
                             : 'hover:bg-red-500/20 text-white/40 hover:text-red-400'
                         } disabled:opacity-50`}
                       >
-                        {syncingKey === `${report.url}-BLOCKED` && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                        {syncingKeys.has(`${report.url}-BLOCKED`) && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
                         Force Block
                       </button>
                       <button
                         onClick={() => handleOverride(report.url, 'SAFE')}
-                        disabled={syncingKey === `${report.url}-SAFE`}
+                        disabled={syncingKeys.has(`${report.url}-SAFE`)}
                         className={`px-3 py-1.5 rounded-md text-[9px] font-mono uppercase tracking-widest transition-all flex items-center gap-1.5 ${
                           currentOverride === 'SAFE'
                             ? 'bg-green-500 text-white shadow-[0_0_10px_rgba(34,197,94,0.5)]'
                             : 'hover:bg-green-500/20 text-white/40 hover:text-green-400'
                         } disabled:opacity-50`}
                       >
-                        {syncingKey === `${report.url}-SAFE` && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                        {syncingKeys.has(`${report.url}-SAFE`) && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
                         Force Safe
                       </button>
                       {currentOverride && (
                         <button
                           onClick={() => handleOverride(report.url, 'CLEAR')}
-                          disabled={syncingKey === `${report.url}-CLEAR`}
+                          disabled={syncingKeys.has(`${report.url}-CLEAR`)}
                           className="px-3 py-1.5 rounded-md text-[9px] font-mono uppercase tracking-widest bg-white/10 text-white/60 hover:bg-white/20 disabled:opacity-50 flex items-center gap-1.5"
                         >
-                          {syncingKey === `${report.url}-CLEAR` && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                          {syncingKeys.has(`${report.url}-CLEAR`) && <div className="w-2.5 h-2.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
                           Clear
                         </button>
                       )}
