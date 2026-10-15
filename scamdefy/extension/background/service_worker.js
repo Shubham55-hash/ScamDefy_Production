@@ -1,7 +1,7 @@
 import ENV from '../config/env.js';
 import { handleMessage, injectScanCacheRef } from './messageRouter.js';
 import { runAllHealthChecks } from './healthCheck.js';
-import { validateConfig } from '../config/env.js';
+import { validateConfig, isTrustedDashboardOrigin, isSecureBackendUrl } from '../config/env.js';
 
 console.log('[ScamDefy] BACKGROUND SCRIPT LOADING...');
 
@@ -20,6 +20,108 @@ chrome.storage.local.get(['popupThreshold', 'bannerThreshold'], (res) => {
 
 const scanCache = new Map();
 const sessionWhitelist = new Set();
+const PROTECTION_LEVELS = ['conservative', 'balanced', 'aggressive'];
+const WARNING_KEY_PREFIX = 'warning:';
+// Fallback when session storage is unavailable (lost if the worker restarts).
+const warningTokensMem = new Map();
+let warningLock = Promise.resolve();
+
+function senderOrigin(sender) {
+  if (sender.origin) return sender.origin;
+  try { return new URL(sender.url).origin; } catch (_) { return null; }
+}
+
+function isFromWarningPage(sender) {
+  return sender.id === chrome.runtime.id &&
+    typeof sender.url === 'string' &&
+    sender.url.startsWith(chrome.runtime.getURL('ui/warning.html'));
+}
+
+function isBlockingResult(result, blockDangerous = true) {
+  const score = result?.score || 0;
+  return (blockDangerous && result?.authoritative_hit === true) || score > POPUP_THRESHOLD;
+}
+
+// Each warning page gets a one-time token bound to its URL and tab, so a bypass
+// (and any guardian escalation) can only be issued for the warning actually shown.
+// Tokens live under their own chrome.storage.session keys (not readable by content
+// scripts), are kept until the tab closes, and are consumed under a lock.
+function withWarningLock(fn) {
+  const run = warningLock.then(fn, fn);
+  warningLock = run.catch(() => {});
+  return run;
+}
+
+async function issueWarningToken(tabId, url, blocked) {
+  const token = crypto.randomUUID();
+  const entry = { url, tabId, blocked, ts: Date.now() };
+  warningTokensMem.set(token, entry);
+  try {
+    await chrome.storage.session.set({ [WARNING_KEY_PREFIX + token]: entry });
+  } catch (err) {
+    console.warn('[ScamDefy] Could not persist warning token, using in-memory fallback:', err);
+  }
+  return token;
+}
+
+function consumeWarningToken(token, url, tabId) {
+  if (!token) return Promise.resolve(null);
+  return withWarningLock(async () => {
+    const key = WARNING_KEY_PREFIX + token;
+    let entry = warningTokensMem.get(token) || null;
+    if (!entry) {
+      try { entry = (await chrome.storage.session.get(key))[key] || null; } catch (_) {}
+    }
+    if (!entry || entry.url !== url || entry.tabId !== tabId) return null;
+    warningTokensMem.delete(token);
+    try { await chrome.storage.session.remove(key); } catch (_) {}
+    return entry;
+  });
+}
+
+async function dropWarningTokensForTab(tabId) {
+  for (const [token, entry] of warningTokensMem) {
+    if (entry.tabId === tabId) warningTokensMem.delete(token);
+  }
+  try {
+    const all = await chrome.storage.session.get(null);
+    const stale = Object.keys(all).filter(k => k.startsWith(WARNING_KEY_PREFIX) && all[k]?.tabId === tabId);
+    if (stale.length) await chrome.storage.session.remove(stale);
+  } catch (_) {}
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  withWarningLock(() => dropWarningTokensForTab(tabId));
+});
+
+function warningUrlParam(sender) {
+  try { return new URL(sender.url).searchParams.get('url'); } catch (_) { return null; }
+}
+
+function warningTokenFromSender(sender) {
+  try { return new URL(sender.url).searchParams.get('token'); } catch (_) { return null; }
+}
+
+function notifyGuardians(safetyCircle, backendUrl, alert) {
+  const apiBase = (backendUrl || ENV.BACKEND_URL).replace(/\/$/, '');
+  if (!isSecureBackendUrl(apiBase)) {
+    console.warn('[ScamDefy] Skipping guardian alert: backend URL is not HTTPS:', apiBase);
+    return Promise.resolve(null);
+  }
+  const userName = safetyCircle.shareUserName && safetyCircle.userName
+    ? safetyCircle.userName
+    : 'A ScamDefy user';
+  return fetch(`${apiBase}/api/guardian/notify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      guardians: safetyCircle.guardians,
+      alert_type: 'URL_SCAN',
+      user_name: userName,
+      ...alert
+    })
+  }).then(res => res.json());
+}
 
 // Inject reference so messageRouter can clear it on bypass_cache
 injectScanCacheRef(scanCache);
@@ -53,39 +155,80 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SYNC_SETTINGS') {
-    handleSyncSettings(message.payload).then(sendResponse);
+    if (sender.id !== chrome.runtime.id || !isTrustedDashboardOrigin(senderOrigin(sender))) {
+      console.warn('[ScamDefy] Rejected SYNC_SETTINGS from untrusted origin:', senderOrigin(sender));
+      sendResponse({ success: false, error: 'untrusted_origin' });
+      return true;
+    }
+    handleSyncSettings(message.payload || {}).then(sendResponse);
     return true;
   }
   if (message.type === 'OPEN_WARNING') {
     const url = message.payload.url;
     const cached = scanCache.get(url);
+    const openWarning = async (result) => {
+      const { blockDangerous = true } = await chrome.storage.local.get(['blockDangerous']);
+      showWarningPage(sender.tab.id, url, result, isBlockingResult(result, blockDangerous));
+    };
     if (cached && cached.result) {
-      showWarningPage(sender.tab.id, url, cached.result.data || cached.result);
+      openWarning(cached.result.data || cached.result);
     } else {
       // Fallback: trigger a new scan then show warning
       handleMessage({ type: 'SCAN_URL', payload: { url } }, null)
         .then(res => {
-          if (res && res.success) showWarningPage(sender.tab.id, url, res.data);
+          if (res && res.success) openWarning(res.data);
         });
     }
     sendResponse({ success: true });
     return true;
   }
   if (message.type === 'PROCEED_ANYWAY') {
-    const { url } = message.payload;
-    if (url) {
-      sessionWhitelist.add(url);
-      // Also add to permanent storage whitelist
-      chrome.storage.local.get(['whitelist'], (res) => {
-        const list = res.whitelist || [];
-        if (!list.includes(url)) {
-          chrome.storage.local.set({ whitelist: [...list, url] });
-        }
-      });
-      // Navigate to the real URL
-      chrome.tabs.update(sender.tab.id, { url });
+    if (!isFromWarningPage(sender)) {
+      console.warn('[ScamDefy] Rejected PROCEED_ANYWAY from untrusted sender:', sender.url);
+      sendResponse({ success: false, error: 'untrusted_sender' });
+      return true;
     }
-    sendResponse({ success: true });
+    const { url } = message.payload || {};
+    const tabId = sender.tab?.id;
+    (async () => {
+      const warning = url ? await consumeWarningToken(warningTokenFromSender(sender), url, tabId) : null;
+      if (!warning) {
+        console.warn('[ScamDefy] Rejected PROCEED_ANYWAY: no matching warning for', url);
+        // Recover a warning page whose token was lost: re-scan the URL it shows
+        // and replace it with a freshly issued warning.
+        if (url && url === warningUrlParam(sender)) {
+          const scan = await handleMessage({ type: 'SCAN_URL', payload: { url } }, null).catch(() => null);
+          if (scan && scan.success) {
+            const { blockDangerous = true } = await chrome.storage.local.get(['blockDangerous']);
+            await showWarningPage(tabId, url, scan.data, isBlockingResult(scan.data, blockDangerous), { replaceUrl: sender.url });
+            sendResponse({ success: false, error: 'warning_reissued' });
+            return;
+          }
+        }
+        sendResponse({ success: false, error: 'no_matching_warning' });
+        return;
+      }
+
+      sessionWhitelist.add(url);
+      const res = await chrome.storage.local.get(['whitelist', 'safetyCircle', 'backendUrl']);
+      const list = res.whitelist || [];
+      if (!list.includes(url)) chrome.storage.local.set({ whitelist: [...list, url] });
+
+      // Safety Circle Escalation — only when this warning was an actual block
+      const sc = res.safetyCircle;
+      if (warning.blocked && sc && sc.enabled && sc.notifyOnEscalation && sc.guardians && sc.guardians.length > 0) {
+        notifyGuardians(sc, res.backendUrl, {
+          scam_type: 'User Bypassed Critical Block',
+          risk_score: 99,
+          is_escalation: true,
+          bypass_cooldown: true
+        }).catch(err => console.warn('[ScamDefy] Guardian escalation failed:', err));
+      }
+
+      // Navigate to the real URL
+      chrome.tabs.update(tabId, { url });
+      sendResponse({ success: true });
+    })();
     return true;
   }
   if (message.type === 'REVOKE_WHITELIST') {
@@ -101,33 +244,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleSyncSettings(settings) {
-  const { 
-    protectionLevel, 
-    backendUrl 
+  const {
+    protectionLevel,
+    backendUrl,
+    safetyCircle
   } = settings;
 
   const mapping = {
     conservative: { popup: 80, banner: 50 },
-    balanced:     { popup: 40, banner: 30 }, 
+    balanced:     { popup: 40, banner: 30 },
     aggressive:   { popup: 20, banner: 1  }
   };
-  
-  const thresholds = mapping[protectionLevel] || mapping.balanced;
-  POPUP_THRESHOLD  = thresholds.popup;
-  BANNER_THRESHOLD = thresholds.banner;
-  
-  console.log(`[ScamDefy] Protocol updated to ${protectionLevel}: POPUP=${POPUP_THRESHOLD}, BANNER=${BANNER_THRESHOLD}`);
-  
-  await chrome.storage.local.set({
-    protectionLevel,
-    popupThreshold:  thresholds.popup,
-    bannerThreshold: thresholds.banner,
-    backendUrl
-  });
+
+  const updates = {};
+
+  // Only touch fields that were sent, so a Safety-Circle-only sync keeps
+  // the extension's existing protocol and backend URL.
+  if (PROTECTION_LEVELS.includes(protectionLevel)) {
+    const thresholds = mapping[protectionLevel];
+    POPUP_THRESHOLD  = thresholds.popup;
+    BANNER_THRESHOLD = thresholds.banner;
+    Object.assign(updates, {
+      protectionLevel,
+      popupThreshold:  thresholds.popup,
+      bannerThreshold: thresholds.banner
+    });
+    console.log(`[ScamDefy] Protocol updated to ${protectionLevel}: POPUP=${POPUP_THRESHOLD}, BANNER=${BANNER_THRESHOLD}`);
+  }
+
+  if (typeof backendUrl === 'string' && /^https?:\/\//i.test(backendUrl)) {
+    updates.backendUrl = backendUrl;
+  }
+
+  if ('safetyCircle' in settings) {
+    updates.safetyCircle = safetyCircle && typeof safetyCircle === 'object' ? safetyCircle : null;
+  }
+
+  await chrome.storage.local.set(updates);
 
   // Re-run health checks now that keys might have changed
   await runAllHealthChecks();
-  
+
   return { success: true };
 }
 
@@ -254,11 +411,11 @@ async function handleScanResult(tabId, url, scanResponse) {
   const score = result.score || 0;
 
   const isAuthoritative = result.authoritative_hit === true;
-  const shouldShowPopup = (blockDangerous && isAuthoritative) || score > POPUP_THRESHOLD;
+  const shouldShowPopup = isBlockingResult(result, blockDangerous);
 
   if (shouldShowPopup) {
     console.log(`[ScamDefy] 🚨 POPUP WARNING — score: ${score} (threshold: >${POPUP_THRESHOLD}, authoritative: ${isAuthoritative})`);
-    await showWarningPage(tabId, url, result);
+    await showWarningPage(tabId, url, result, true);
 
   // ── Show caution banner for score 31–75 ──────────────────────────────────
   } else if (score > BANNER_THRESHOLD && showBanner) {
@@ -276,21 +433,28 @@ async function handleScanResult(tabId, url, scanResponse) {
 }
 
 // ─── Redirect to full warning/block page ────────────────────────────────────
-async function showWarningPage(tabId, url, result) {
+// replaceUrl: only redirect if the tab is still on this exact (stale) warning page.
+async function showWarningPage(tabId, url, result, blocked = false, { replaceUrl = null } = {}) {
+  const token = await issueWarningToken(tabId, url, blocked);
   // Encode result as UTF-8-safe base64
   const uint8      = new TextEncoder().encode(JSON.stringify(result));
   const binString  = Array.from(uint8, b => String.fromCharCode(b)).join('');
   const encoded    = btoa(binString);
   const warningUrl = chrome.runtime.getURL(
-    `ui/warning.html?url=${encodeURIComponent(url)}&data=${encodeURIComponent(encoded)}`
+    `ui/warning.html?url=${encodeURIComponent(url)}&data=${encodeURIComponent(encoded)}&token=${encodeURIComponent(token)}`
   );
-  console.log('[ScamDefy] ⚡ Redirecting tab to warning page:', warningUrl);
+  console.log('[ScamDefy] ⚡ Redirecting tab to warning page for:', url);
 
   // Retry up to 3 times — tab may still be navigating when we first try
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const tab = await chrome.tabs.get(tabId);
-      if (tab.url && tab.url.includes('ui/warning.html')) {
+      if (replaceUrl) {
+        if (tab.url !== replaceUrl || (tab.pendingUrl && tab.pendingUrl !== replaceUrl)) {
+          console.log('[ScamDefy] Tab left the stale warning page, skipping re-issue');
+          return;
+        }
+      } else if (tab.url && tab.url.includes('ui/warning.html')) {
         console.log('[ScamDefy] Already on warning page, skipping redirect');
         return;
       }
@@ -323,6 +487,26 @@ async function showWarningPage(tabId, url, result) {
       priority: 2,
     });
   } catch (_) {}
+
+  // Safety Circle Notification
+  try {
+    const { safetyCircle, backendUrl } = await chrome.storage.local.get(['safetyCircle', 'backendUrl']);
+    if (safetyCircle && safetyCircle.enabled && safetyCircle.guardians && safetyCircle.guardians.length > 0) {
+      const riskScore = Math.round(result.score || 0);
+      if (riskScore >= (safetyCircle.threshold || 30)) {
+        console.log(`[ScamDefy] Triggering Safety Circle alert for score ${riskScore}...`);
+        notifyGuardians(safetyCircle, backendUrl, {
+          scam_type: result.scam_type || result.verdict || 'Suspicious Website',
+          risk_score: riskScore,
+          is_escalation: false,
+          bypass_cooldown: false
+        }).then(data => data && console.log('[ScamDefy] Guardian notify result:', data))
+          .catch(err => console.warn('[ScamDefy] Guardian fetch failed:', err));
+      }
+    }
+  } catch (err) {
+    console.warn('[ScamDefy] Safety Circle notify error:', err);
+  }
 }
 
 // ─── Inject caution banner (score 31–75) ────────────────────────────────────

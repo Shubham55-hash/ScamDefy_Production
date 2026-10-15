@@ -4,7 +4,7 @@ import type { VoiceResult as VoiceResultType } from '../../types';
 interface Props { result: VoiceResultType }
 
 export function VoiceResult({ result }: Props) {
-  const isSynthetic = result.verdict === 'SYNTHETIC';
+  const isSynthetic = result.verdict === 'SYNTHETIC' || result.verdict === 'AI';
   const isUnknown = result.verdict === 'UNKNOWN' || result.verdict === 'UNCERTAIN';
   const color = isSynthetic ? '#e879f9' : isUnknown ? '#f59e0b' : '#4ade80';
   const label = isSynthetic ? 'AI VOICE DETECTED' : isUnknown ? 'INCONCLUSIVE' : 'AUTHENTIC VOICE CONFIRMED';

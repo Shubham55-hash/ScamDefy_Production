@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { LiveVerdictEntry } from '../types';
 import { analyzeVoice } from '../api/voiceService';
 import { useAppStore } from '../store/appStore';
@@ -6,7 +6,7 @@ import { useGuardianAlert } from './useGuardianAlert';
 
 export type LiveState = 'idle' | 'requesting' | 'recording' | 'stopping' | 'error';
 
-const CHUNK_DURATION_MS = 6000; // 6-second rolling chunks
+const CHUNK_DURATION_MS = 2000; // 2-second rapid chunks for live quorum
 
 /** Release all tracks on a stream and clear the ref */
 function releaseStream(streamRef: React.MutableRefObject<MediaStream | null>) {
@@ -102,8 +102,27 @@ export function useLiveMonitor() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunkCountRef = useRef(0);
+  const chunkIntervalRef = useRef<number | null>(null);
   const { addToast } = useAppStore();
   const { checkAndAlert } = useGuardianAlert();
+
+  const clearChunkInterval = useCallback(() => {
+    if (chunkIntervalRef.current !== null) {
+      window.clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
+    }
+  }, []);
+
+  const stopRecorder = useCallback(() => {
+    clearChunkInterval();
+    const mr = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+    try {
+      if (mr && mr.state !== 'inactive') mr.stop();
+    } catch (e) {
+      console.warn('[LiveMonitor] recorder stop error:', e);
+    }
+  }, [clearChunkInterval]);
 
   const handleChunk = useCallback(async (blob: Blob, chunkNum: number) => {
     // Ignore tiny/empty blobs — 6s of audio at 128kbps opus should be >> 5KB
@@ -129,7 +148,7 @@ export function useLiveMonitor() {
         ? (JSON.parse(storedSettings)?.geminiApiKey ?? null)
         : null;
 
-      const file = new File([wavBlob], `live_chunk_${chunkNum}.wav`, { type: 'audio/wav' });
+      const file = new File([wavBlob], `live_chunk_${chunkNum}_${Date.now()}.wav`, { type: 'audio/wav' });
       const result = await analyzeVoice(file, geminiKey);
 
       const entry: LiveVerdictEntry = {
@@ -142,7 +161,7 @@ export function useLiveMonitor() {
         chunk_number: chunkNum,
       };
       setVerdicts(prev => [entry, ...prev]); // newest first
-      if (result.verdict === 'SYNTHETIC') {
+      if (result.verdict === 'SYNTHETIC' || result.verdict === 'AI') {
         addToast('error', `🤖 AI voice detected in live stream — ${result.confidence_pct.toFixed(1)}% confidence`);
         
         // Notify Guardian of live AI deepfake threat
@@ -164,6 +183,8 @@ export function useLiveMonitor() {
   const start = useCallback(async () => {
     setErrorMsg(null);
     setLiveState('requesting');
+    stopRecorder();
+    releaseStream(streamRef);
     let ms: MediaStream | null = null;
 
     try {
@@ -196,16 +217,24 @@ export function useLiveMonitor() {
 
       mr.onerror = (e) => {
         console.error('[LiveMonitor] MediaRecorder error:', e);
+        if (mediaRecorderRef.current === mr) stopRecorder();
         setLiveState('error');
         setErrorMsg('Recording error — please try again');
         releaseStream(streamRef);
         setStream(null);
       };
 
-      // 3. Start chunking
-      mr.start(CHUNK_DURATION_MS);
+      // 3. Start chunking explicitly to force WebM headers on every blob
+      mr.start();
+      chunkIntervalRef.current = window.setInterval(() => {
+        if (mr.state === 'recording') {
+          mr.stop();
+          mr.start();
+        }
+      }, CHUNK_DURATION_MS);
       setLiveState('recording');
     } catch (err: any) {
+      stopRecorder();
       // Ensure mic tracks are always released on failure
       if (ms && !streamRef.current) {
         ms.getTracks().forEach(t => t.stop());
@@ -227,22 +256,21 @@ export function useLiveMonitor() {
       setErrorMsg(msg);
       setLiveState('error');
     }
-  }, [handleChunk]);
+  }, [handleChunk, stopRecorder]);
 
   const stop = useCallback(() => {
     setLiveState('stopping');
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-      mediaRecorderRef.current = null;
-    } catch (e) {
-      console.warn('[LiveMonitor] stop() recorder error:', e);
-    }
+    stopRecorder();
     releaseStream(streamRef);
     setStream(null);
     setLiveState('idle');
-  }, []);
+  }, [stopRecorder]);
+
+  // Tear down timer, recorder and mic when the component unmounts
+  useEffect(() => () => {
+    stopRecorder();
+    releaseStream(streamRef);
+  }, [stopRecorder]);
 
   const clearVerdicts = useCallback(() => setVerdicts([]), []);
 

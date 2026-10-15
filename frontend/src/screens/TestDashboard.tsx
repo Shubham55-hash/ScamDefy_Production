@@ -602,7 +602,7 @@ export function TestDashboard() {
       const fd3 = new FormData();
       fd3.append('audio', new Blob([wavBytes.buffer as ArrayBuffer], { type: 'audio/wav' }), 'test.wav');
       const vr = await apiCall('/api/voice/analyze', { method: 'POST', body: fd3 });
-      const verdictOk = vr.data?.verdict && ['REAL','SYNTHETIC','UNCERTAIN','UNKNOWN'].includes(vr.data.verdict);
+      const verdictOk = vr.data?.verdict && ['REAL','SYNTHETIC','AI','UNCERTAIN','UNKNOWN'].includes(vr.data.verdict);
       updateTest('voice','v3',{
         status: (vr.ok || vr.data?.verdict) ? (verdictOk ? 'pass' : 'partial') : 'partial',
         durationMs: vr.latencyMs,

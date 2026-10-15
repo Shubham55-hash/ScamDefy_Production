@@ -75,6 +75,7 @@ async function updateColors(score, verdict) {
   badge.style.background  = bg;
   badge.textContent       = effectiveVerdict || 'UNKNOWN';
 
+  const sv = document.getElementById('scoreValue');
   if (sv && score !== null && score !== '--') {
     sv.textContent = Math.round(parseFloat(score));
   }

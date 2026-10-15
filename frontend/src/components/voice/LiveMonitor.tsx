@@ -8,19 +8,20 @@ import { useGuardianAlert } from '../../hooks/useGuardianAlert';
 const CHUNK_SECS = 6;
 
 function verdictColor(v: string) {
-  if (v === 'SYNTHETIC') return '#e879f9';
+  if (v === 'SYNTHETIC' || v === 'AI') return '#e879f9';
   if (v === 'REAL')      return '#4ade80';
   return '#f59e0b'; // UNCERTAIN / UNKNOWN
 }
 function verdictIcon(v: string) {
-  if (v === 'SYNTHETIC') return '🤖';
+  if (v === 'SYNTHETIC' || v === 'AI') return '🤖';
   if (v === 'REAL')      return '✅';
   return '❓';
 }
 function verdictLabel(v: string) {
-  if (v === 'SYNTHETIC') return 'AI VOICE DETECTED';
-  if (v === 'REAL')      return 'AUTHENTIC';
-  return 'INCONCLUSIVE';
+  if (v === 'SYNTHETIC' || v === 'AI') return 'LIVE STATUS: AI DETECTED';
+  if (v === 'REAL')      return 'LIVE STATUS: AUTHENTIC';
+  if (v === 'LISTENING') return 'LIVE STATUS: LISTENING...';
+  return 'LIVE STATUS: READY';
 }
 
 function VerdictRow({ entry }: { entry: LiveVerdictEntry }) {
@@ -89,7 +90,7 @@ export function LiveMonitor() {
     const newVerdicts = verdicts.slice(processedCountRef.current);
     processedCountRef.current = verdicts.length;
     const syntheticHigh = newVerdicts.find(
-      v => v.verdict === 'SYNTHETIC' && v.confidence_pct >= 75,
+      v => (v.verdict === 'SYNTHETIC' || v.verdict === 'AI') && v.confidence_pct >= 75,
     );
     if (syntheticHigh) {
       checkAndAlert('VOICE_SCAN', 'AI Voice / Deepfake Detected', Math.round(syntheticHigh.confidence_pct));
@@ -115,17 +116,10 @@ export function LiveMonitor() {
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
   }, [isRecording, chunkDurationMs]);
 
-  // Aggregate verdict across all chunks
-  const syntheticCount = verdicts.filter(v => v.verdict === 'SYNTHETIC').length;
-  const realCount = verdicts.filter(v => v.verdict === 'REAL').length;
-  const sessionVerdict = verdicts.length === 0
-    ? null
-    : syntheticCount > 0
-      ? 'SYNTHETIC'
-      : realCount > 0 ? 'REAL' : 'UNCERTAIN';
-  const avgConfidence = verdicts.length > 0
-    ? verdicts.reduce((sum, v) => sum + v.confidence_pct, 0) / verdicts.length
-    : 0;
+  // Sync Session verdict directly to the latest buffer state, rather than tracking historical highs
+  const lastVerdict = verdicts[0];
+  const sessionVerdict = lastVerdict ? lastVerdict.verdict : null;
+  const avgConfidence = lastVerdict ? lastVerdict.confidence_pct : 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -205,13 +199,10 @@ export function LiveMonitor() {
               <span className="text-electricMagenta">{countdown}s</span>
             </div>
             <div className="flex items-center gap-3">
-              {isAnalyzing && (
+              {isAnalyzing ? (
                 <span className="text-electricCyan/70 animate-pulse uppercase tracking-widest">ANALYZING...</span>
-              )}
-              {syntheticCount > 0 && (
-                <span className="text-electricMagenta font-bold">
-                  {syntheticCount} SYNTHETIC CHUNK{syntheticCount > 1 ? 'S' : ''} DETECTED
-                </span>
+              ) : (
+                <span className="text-white/40 uppercase tracking-widest">ANALYZING LIVE AUDIO...</span>
               )}
             </div>
           </div>
@@ -224,19 +215,19 @@ export function LiveMonitor() {
           className="glass-panel rounded-xl px-5 py-4 flex items-center justify-between slide-up"
           style={{
             border: `1px solid ${
-              sessionVerdict === 'SYNTHETIC' ? 'rgba(232,121,249,0.35)'
+              (sessionVerdict === 'SYNTHETIC' || sessionVerdict === 'AI') ? 'rgba(232,121,249,0.35)'
               : sessionVerdict === 'REAL'    ? 'rgba(74,222,128,0.35)'
               : 'rgba(245,158,11,0.35)'
             }`,
             background: `${
-              sessionVerdict === 'SYNTHETIC' ? 'rgba(232,121,249,0.06)'
+              (sessionVerdict === 'SYNTHETIC' || sessionVerdict === 'AI') ? 'rgba(232,121,249,0.06)'
               : sessionVerdict === 'REAL'    ? 'rgba(74,222,128,0.06)'
               : 'rgba(245,158,11,0.06)'
             }`,
           }}
         >
           <div>
-            <p className="text-[9px] font-mono uppercase tracking-[0.3em] text-white/30 mb-1">SESSION VERDICT</p>
+            <p className="text-[9px] font-mono uppercase tracking-[0.3em] text-white/30 mb-1">REAL-TIME MONITOR</p>
             <p
               className="text-sm font-black uppercase tracking-tighter"
               style={{
@@ -248,7 +239,7 @@ export function LiveMonitor() {
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[9px] font-mono uppercase tracking-widest text-white/30 mb-1">AVG CONFIDENCE</p>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-white/30 mb-1">CONFIDENCE</p>
             <p className="text-lg font-black tabular-nums" style={{ color: verdictColor(sessionVerdict) }}>
               {avgConfidence.toFixed(1)}%
             </p>
@@ -293,7 +284,9 @@ export function LiveMonitor() {
               </p>
             </div>
           ) : (
-            verdicts.map(entry => <VerdictRow key={entry.id} entry={entry} />)
+            verdicts
+              .filter(v => v.verdict !== 'LISTENING')
+              .map(entry => <VerdictRow key={entry.id} entry={entry} />)
           )}
         </div>
       </div>

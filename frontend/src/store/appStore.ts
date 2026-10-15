@@ -104,5 +104,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = { ...get().scSettings, ...patch };
     set({ scSettings: next });
     persistSC(next);
+    window.dispatchEvent(new CustomEvent('scamdefy-safety-circle-updated', { detail: next }));
   },
 }));
