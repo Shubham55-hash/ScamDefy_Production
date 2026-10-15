@@ -200,7 +200,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const scan = await handleMessage({ type: 'SCAN_URL', payload: { url } }, null).catch(() => null);
           if (scan && scan.success) {
             const { blockDangerous = true } = await chrome.storage.local.get(['blockDangerous']);
-            await showWarningPage(tabId, url, scan.data, isBlockingResult(scan.data, blockDangerous), { force: true });
+            await showWarningPage(tabId, url, scan.data, isBlockingResult(scan.data, blockDangerous), { replaceUrl: sender.url });
             sendResponse({ success: false, error: 'warning_reissued' });
             return;
           }
@@ -433,7 +433,8 @@ async function handleScanResult(tabId, url, scanResponse) {
 }
 
 // ─── Redirect to full warning/block page ────────────────────────────────────
-async function showWarningPage(tabId, url, result, blocked = false, { force = false } = {}) {
+// replaceUrl: only redirect if the tab is still on this exact (stale) warning page.
+async function showWarningPage(tabId, url, result, blocked = false, { replaceUrl = null } = {}) {
   const token = await issueWarningToken(tabId, url, blocked);
   // Encode result as UTF-8-safe base64
   const uint8      = new TextEncoder().encode(JSON.stringify(result));
@@ -448,7 +449,12 @@ async function showWarningPage(tabId, url, result, blocked = false, { force = fa
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const tab = await chrome.tabs.get(tabId);
-      if (!force && tab.url && tab.url.includes('ui/warning.html')) {
+      if (replaceUrl) {
+        if (tab.url !== replaceUrl || (tab.pendingUrl && tab.pendingUrl !== replaceUrl)) {
+          console.log('[ScamDefy] Tab left the stale warning page, skipping re-issue');
+          return;
+        }
+      } else if (tab.url && tab.url.includes('ui/warning.html')) {
         console.log('[ScamDefy] Already on warning page, skipping redirect');
         return;
       }
