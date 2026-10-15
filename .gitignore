@@ -17,6 +17,7 @@ out/
 *out.txt
 debug_*.txt
 *.log
+*.tar
 
 # [ Python ]
 __pycache__/
