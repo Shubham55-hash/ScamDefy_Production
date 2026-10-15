@@ -21,8 +21,10 @@ chrome.storage.local.get(['popupThreshold', 'bannerThreshold'], (res) => {
 const scanCache = new Map();
 const sessionWhitelist = new Set();
 const PROTECTION_LEVELS = ['conservative', 'balanced', 'aggressive'];
-const WARNINGS_KEY = 'warningTokens';
-const MAX_WARNING_TOKENS = 100;
+const WARNING_KEY_PREFIX = 'warning:';
+// Fallback when session storage is unavailable (lost if the worker restarts).
+const warningTokensMem = new Map();
+let warningLock = Promise.resolve();
 
 function senderOrigin(sender) {
   if (sender.origin) return sender.origin;
@@ -42,34 +44,58 @@ function isBlockingResult(result, blockDangerous = true) {
 
 // Each warning page gets a one-time token bound to its URL and tab, so a bypass
 // (and any guardian escalation) can only be issued for the warning actually shown.
-// chrome.storage.session is not readable by content scripts.
+// Tokens live under their own chrome.storage.session keys (not readable by content
+// scripts), are kept until the tab closes, and are consumed under a lock.
+function withWarningLock(fn) {
+  const run = warningLock.then(fn, fn);
+  warningLock = run.catch(() => {});
+  return run;
+}
+
 async function issueWarningToken(tabId, url, blocked) {
   const token = crypto.randomUUID();
+  const entry = { url, tabId, blocked, ts: Date.now() };
+  warningTokensMem.set(token, entry);
   try {
-    const { [WARNINGS_KEY]: tokens = {} } = await chrome.storage.session.get(WARNINGS_KEY);
-    tokens[token] = { url, tabId, blocked, ts: Date.now() };
-    const pruned = Object.fromEntries(
-      Object.entries(tokens).sort((a, b) => b[1].ts - a[1].ts).slice(0, MAX_WARNING_TOKENS)
-    );
-    await chrome.storage.session.set({ [WARNINGS_KEY]: pruned });
+    await chrome.storage.session.set({ [WARNING_KEY_PREFIX + token]: entry });
   } catch (err) {
-    console.warn('[ScamDefy] Could not record warning token:', err);
+    console.warn('[ScamDefy] Could not persist warning token, using in-memory fallback:', err);
   }
   return token;
 }
 
-async function consumeWarningToken(token, url, tabId) {
-  if (!token) return null;
-  try {
-    const { [WARNINGS_KEY]: tokens = {} } = await chrome.storage.session.get(WARNINGS_KEY);
-    const entry = tokens[token];
+function consumeWarningToken(token, url, tabId) {
+  if (!token) return Promise.resolve(null);
+  return withWarningLock(async () => {
+    const key = WARNING_KEY_PREFIX + token;
+    let entry = warningTokensMem.get(token) || null;
+    if (!entry) {
+      try { entry = (await chrome.storage.session.get(key))[key] || null; } catch (_) {}
+    }
     if (!entry || entry.url !== url || entry.tabId !== tabId) return null;
-    delete tokens[token];
-    await chrome.storage.session.set({ [WARNINGS_KEY]: tokens });
+    warningTokensMem.delete(token);
+    try { await chrome.storage.session.remove(key); } catch (_) {}
     return entry;
-  } catch (_) {
-    return null;
+  });
+}
+
+async function dropWarningTokensForTab(tabId) {
+  for (const [token, entry] of warningTokensMem) {
+    if (entry.tabId === tabId) warningTokensMem.delete(token);
   }
+  try {
+    const all = await chrome.storage.session.get(null);
+    const stale = Object.keys(all).filter(k => k.startsWith(WARNING_KEY_PREFIX) && all[k]?.tabId === tabId);
+    if (stale.length) await chrome.storage.session.remove(stale);
+  } catch (_) {}
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  withWarningLock(() => dropWarningTokensForTab(tabId));
+});
+
+function warningUrlParam(sender) {
+  try { return new URL(sender.url).searchParams.get('url'); } catch (_) { return null; }
 }
 
 function warningTokenFromSender(sender) {
@@ -168,6 +194,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const warning = url ? await consumeWarningToken(warningTokenFromSender(sender), url, tabId) : null;
       if (!warning) {
         console.warn('[ScamDefy] Rejected PROCEED_ANYWAY: no matching warning for', url);
+        // Recover a warning page whose token was lost: re-scan the URL it shows
+        // and replace it with a freshly issued warning.
+        if (url && url === warningUrlParam(sender)) {
+          const scan = await handleMessage({ type: 'SCAN_URL', payload: { url } }, null).catch(() => null);
+          if (scan && scan.success) {
+            const { blockDangerous = true } = await chrome.storage.local.get(['blockDangerous']);
+            await showWarningPage(tabId, url, scan.data, isBlockingResult(scan.data, blockDangerous), { force: true });
+            sendResponse({ success: false, error: 'warning_reissued' });
+            return;
+          }
+        }
         sendResponse({ success: false, error: 'no_matching_warning' });
         return;
       }
@@ -396,7 +433,7 @@ async function handleScanResult(tabId, url, scanResponse) {
 }
 
 // ─── Redirect to full warning/block page ────────────────────────────────────
-async function showWarningPage(tabId, url, result, blocked = false) {
+async function showWarningPage(tabId, url, result, blocked = false, { force = false } = {}) {
   const token = await issueWarningToken(tabId, url, blocked);
   // Encode result as UTF-8-safe base64
   const uint8      = new TextEncoder().encode(JSON.stringify(result));
@@ -405,13 +442,13 @@ async function showWarningPage(tabId, url, result, blocked = false) {
   const warningUrl = chrome.runtime.getURL(
     `ui/warning.html?url=${encodeURIComponent(url)}&data=${encodeURIComponent(encoded)}&token=${encodeURIComponent(token)}`
   );
-  console.log('[ScamDefy] ⚡ Redirecting tab to warning page:', warningUrl);
+  console.log('[ScamDefy] ⚡ Redirecting tab to warning page for:', url);
 
   // Retry up to 3 times — tab may still be navigating when we first try
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const tab = await chrome.tabs.get(tabId);
-      if (tab.url && tab.url.includes('ui/warning.html')) {
+      if (!force && tab.url && tab.url.includes('ui/warning.html')) {
         console.log('[ScamDefy] Already on warning page, skipping redirect');
         return;
       }

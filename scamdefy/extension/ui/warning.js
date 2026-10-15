@@ -214,6 +214,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.runtime.sendMessage({
         type: 'PROCEED_ANYWAY',
         payload: { url: destination }
+      }, (response) => {
+        if (chrome.runtime.lastError || !response) {
+          window.alert('ScamDefy could not process this request. Please reload the page and try again.');
+          return;
+        }
+        // 'warning_reissued': the background is replacing this page with a fresh warning
+        if (!response.success && response.error !== 'warning_reissued') {
+          window.alert('ScamDefy could not verify this warning. Please revisit the site to get a fresh warning.');
+        }
       });
     });
   }
