@@ -12,6 +12,9 @@
 *.pem
 *.key
 *.cert
+# Dev-only login accounts with well-known passwords — never ship them in the
+# published image. Mount a real file and set AUTH_USERS_FILE instead.
+data/users.json
 
 # 2. Git & Version Control
 .git/

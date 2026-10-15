@@ -95,47 +95,7 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Smoke test container
-        run: |
-          docker run -d \
-            --name scamdefy-ci \
-            -p 8000:8000 \
-            -e GEMINI_API_KEY=ci-placeholder \
-            -e GOOGLE_SAFE_BROWSING_API_KEY=ci-placeholder \
-            -e URLHAUS_API_KEY=ci-placeholder \
-            scamdefy-api:${{ github.sha }}
-
-          echo "Waiting for API to become ready..."
-          READY=0
-          for i in $(seq 1 30); do
-            if ! docker ps -q --filter "name=scamdefy-ci" --filter "status=running" | grep -q .; then
-              echo "ERROR: Container exited unexpectedly."
-              docker logs scamdefy-ci
-              exit 1
-            fi
-
-            if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
-              echo "API root is responding (attempt $i)!"
-              READY=1
-              break
-            fi
-            sleep 2
-          done
-
-          if [ "$READY" -ne 1 ]; then
-            echo "ERROR: API did not become ready within timeout."
-            docker logs scamdefy-ci
-            exit 1
-          fi
-
-          echo "Verifying root endpoint..."
-          ROOT_RESP=$(curl -sf http://localhost:8000/)
-          echo "$ROOT_RESP" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['status']=='active', f'Unexpected status: {d}'"
-
-          echo "Verifying health endpoint..."
-          HEALTH_RESP=$(curl -sf http://localhost:8000/api/health)
-          echo "$HEALTH_RESP" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['status']=='ok', f'Health check failed: {d}'"
-
-          echo "Smoke test passed successfully!"
+        run: bash .github/scripts/smoke-test.sh "scamdefy-api:${{ github.sha }}"
 
       - name: Cleanup smoke test container
         if: always()
@@ -147,17 +107,26 @@ jobs:
   # Runs ONLY on push to main — never on pull requests.
   # Requires both test and docker-build (smoke test) to pass first.
   # Uses the built-in GITHUB_TOKEN — no PAT or repository secret required.
-  # Publishes:
-  #   ghcr.io/shubham55-hash/scamdefy-api:latest
-  #   ghcr.io/shubham55-hash/scamdefy-api:sha-<full-commit-sha>
+  #
+  # The image is pushed untagged (by digest), smoke-tested from the registry, and
+  # only then tagged — so the tags always point at the exact bytes that passed.
+  #   ghcr.io/shubham55-hash/scamdefy-api:sha-<full-commit-sha>   (always)
+  #   ghcr.io/shubham55-hash/scamdefy-api:latest                  (only if this
+  #     commit is still the head of main, so older/re-run builds can't roll it back)
   publish:
     name: Publish Image to GHCR
     runs-on: ubuntu-latest
     needs: [test, docker-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # One publish at a time; a newer queued run supersedes an older queued one.
+    concurrency:
+      group: ghcr-publish-main
+      cancel-in-progress: false
     permissions:
-      contents: read    # checkout
+      contents: read    # checkout + main-head check
       packages: write   # push image to GHCR — scoped to this job only
+    env:
+      IMAGE: ghcr.io/shubham55-hash/scamdefy-api
 
     steps:
       - name: Checkout repository
@@ -185,20 +154,17 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/shubham55-hash/scamdefy-api
-          tags: |
-            type=raw,value=latest
-            type=sha,format=long
+          images: ${{ env.IMAGE }}
 
-      - name: Build and push image to GHCR (linux/amd64)
+      - name: Build and push untagged image by digest (linux/amd64)
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./api
           file: ./api/Dockerfile
           platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
@@ -207,13 +173,48 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
+      - name: Smoke test pushed image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "$IMAGE@$DIGEST"
+          bash .github/scripts/smoke-test.sh "$IMAGE@$DIGEST"
+
+      - name: Cleanup smoke test container
+        if: always()
+        run: |
+          docker stop scamdefy-ci || true
+          docker rm scamdefy-ci || true
+
+      - name: Tag tested image with commit SHA
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: docker buildx imagetools create -t "$IMAGE:sha-${{ github.sha }}" "$IMAGE@$DIGEST"
+
+      - name: Promote to latest if still head of main
+        id: promote
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          MAIN_HEAD=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$MAIN_HEAD" != "${{ github.sha }}" ]; then
+            echo "::notice::main has moved to $MAIN_HEAD; not moving latest to ${{ github.sha }}."
+            echo "promoted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE@$DIGEST"
+          echo "promoted=true" >> "$GITHUB_OUTPUT"
+
       - name: Publish summary
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           echo "### Image published to GHCR" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Tag | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| latest | \`ghcr.io/shubham55-hash/scamdefy-api:latest\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| commit | \`ghcr.io/shubham55-hash/scamdefy-api:sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| commit | \`$IMAGE:sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| latest | ${{ steps.promote.outputs.promoted == 'true' && 'updated' || 'unchanged (newer commit on main)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| digest | \`$DIGEST\` |" >> $GITHUB_STEP_SUMMARY
           echo "| platform | \`linux/amd64\` |" >> $GITHUB_STEP_SUMMARY
           echo "| triggered by | \`${{ github.actor }}\` |" >> $GITHUB_STEP_SUMMARY
